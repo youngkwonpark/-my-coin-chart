@@ -52,7 +52,7 @@ tf_path = timeframe_map[tf_selected]
 
 
 # ---------------------------------------------------------
-# 2. 타임스탬프 및 1970년 오류 원천 차단 데이터 가공
+# 2. 1970년 오류 원천 차단 및 시간 완벽 정렬 가공
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_safe_chart_data(market, tf):
@@ -64,14 +64,19 @@ def get_safe_chart_data(market, tf):
         if not isinstance(res, list) or len(res) == 0:
             return None, None, None, None, None
 
-        res.reverse()  # 과거 -> 현재 순서 정렬
         df = pd.DataFrame(res)
 
-        # [핵심] 유효한 KST 시간만 완벽하게 정수 타임스탬프로 변환 (1970년 오류 방지)
+        # 날짜 형식 파싱 및 유효하지 않은 데이터 제거
         df["dt"] = pd.to_datetime(df["candle_date_time_kst"], errors="coerce")
-        df = df.dropna(subset=["dt"])
+        df = df.dropna(subset=["dt", "trade_price"])
 
+        # 타임스탬프 계산 및 오름차순 정렬 (과거 -> 현재)
         df["timestamp_kst_sec"] = df["dt"].astype("int64") // 10**9
+        df = df.sort_values("timestamp_kst_sec").drop_duplicates(
+            subset=["timestamp_kst_sec"]
+        )
+        df = df.reset_index(drop=True)
+
         df["open"] = df["opening_price"]
         df["high"] = df["high_price"]
         df["low"] = df["low_price"]
@@ -90,8 +95,10 @@ def get_safe_chart_data(market, tf):
         for i in range(len(df)):
             row = df.iloc[i]
             t_sec = int(row["timestamp_kst_sec"])
-            t_kst_str = row["dt"].strftime("%m-%d %H:%M")
+            if t_sec <= 0:
+                continue  # 비정상 타임스탬프 무조건 스킵
 
+            t_kst_str = row["dt"].strftime("%m-%d %H:%M")
             c_p, o_p, h_p, l_p = (
                 row["close"],
                 row["open"],
