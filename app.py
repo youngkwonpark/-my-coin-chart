@@ -5,7 +5,7 @@ import streamlit as st
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # ---------------------------------------------------------
-# 0. 기본 설정 (고야 앱 모바일 스타일 레이아웃)
+# 0. 모바일 최적화 및 큰 글씨 스타일 설정
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Goya Chart App", page_icon="📈", layout="centered"
@@ -17,34 +17,37 @@ st.markdown(
     .stApp { background-color: #121212; color: #FFFFFF; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
     .block-container { padding: 0px !important; max-width: 100% !important; }
     
-    /* 고야 앱 스타일 상단 헤더 */
+    /* 상단 헤더 */
     .goya-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         background-color: #1e1e1e;
-        padding: 12px 16px;
+        padding: 14px 16px;
         border-bottom: 1px solid #2c2c2c;
     }
     .goya-title {
-        font-size: 18px;
+        font-size: 20px;
         font-weight: bold;
         color: #ffffff;
         text-align: center;
         flex-grow: 1;
     }
     .goya-back {
-        font-size: 20px;
+        font-size: 22px;
         color: #ffffff;
         cursor: pointer;
         text-decoration: none;
     }
     .goya-subbar {
         background-color: #181818;
-        padding: 10px 16px;
+        padding: 12px 16px;
         border-bottom: 1px solid #2c2c2c;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
-    /* 하단 앱 네비게이션바 스타일 */
+    /* 하단 네비게이션바 스타일 */
     .goya-nav {
         position: fixed;
         bottom: 0;
@@ -54,16 +57,17 @@ st.markdown(
         border-top: 1px solid #2c2c2c;
         display: flex;
         justify-content: space-around;
-        padding: 8px 0;
+        padding: 10px 0;
         z-index: 999;
     }
     .goya-nav-item {
         text-align: center;
         color: #888888;
-        font-size: 11px;
+        font-size: 13px;
     }
     .goya-nav-item.active {
         color: #ff9800;
+        font-weight: bold;
     }
     </style>
 """,
@@ -81,12 +85,6 @@ if "show_goya" not in st.session_state:
     st.session_state.show_goya = True
 if "show_smart" not in st.session_state:
     st.session_state.show_smart = True
-if "show_sr" not in st.session_state:
-    st.session_state.show_sr = False
-if "show_trend" not in st.session_state:
-    st.session_state.show_trend = False
-if "show_trend1" not in st.session_state:
-    st.session_state.show_trend1 = False
 if "show_menu" not in st.session_state:
     st.session_state.show_menu = False
 if "tf_choice" not in st.session_state:
@@ -100,7 +98,7 @@ SYMBOL_MAP = {
 }
 
 # ---------------------------------------------------------
-# 2. 상단 네비게이션바 및 코인/타임프레임 컨트롤
+# 2. 상단 헤더 및 코인 선택
 # ---------------------------------------------------------
 st.markdown(
     f"""
@@ -113,8 +111,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-col_c1, col_tf1, col_tf2, col_tf3, col_tf4 = st.columns([1.6, 1, 1, 1, 1])
-
+col_c1, _ = st.columns([1.5, 1])
 with col_c1:
     selected_coin = st.selectbox(
         "코인 선택",
@@ -129,50 +126,29 @@ with col_c1:
 
 market_code = SYMBOL_MAP[st.session_state.selected_coin]
 
-with col_tf1:
-    if st.button(
-        "1분",
-        use_container_width=True,
-        type="primary"
-        if st.session_state.tf_choice == "1분"
-        else "secondary",
-    ):
-        st.session_state.tf_choice = "1분"
-        st.rerun()
-with col_tf2:
-    if st.button(
-        "5분",
-        use_container_width=True,
-        type="primary"
-        if st.session_state.tf_choice == "5분"
-        else "secondary",
-    ):
-        st.session_state.tf_choice = "5분"
-        st.rerun()
-with col_tf3:
-    if st.button(
-        "1시간",
-        use_container_width=True,
-        type="primary"
-        if st.session_state.tf_choice == "1시간"
-        else "secondary",
-    ):
-        st.session_state.tf_choice = "1시간"
-        st.rerun()
-with col_tf4:
-    if st.button(
-        "4시간",
-        use_container_width=True,
-        type="primary"
-        if st.session_state.tf_choice == "4시간"
-        else "secondary",
-    ):
-        st.session_state.tf_choice = "4시간"
-        st.rerun()
+# ---------------------------------------------------------
+# 3. 타임프레임 (1분, 5분, 15분, 30분, 1시간, 4시간) 버튼 배치
+# ---------------------------------------------------------
+tf_list = ["1분", "5분", "15분", "30분", "1시간", "4시간"]
+tf_cols = st.columns(6)
+
+for idx, tf_name in enumerate(tf_list):
+    with tf_cols[idx]:
+        is_selected = st.session_state.tf_choice == tf_name
+        if st.button(
+            tf_name,
+            use_container_width=True,
+            type="primary" if is_selected else "secondary",
+            key=f"tf_btn_{tf_name}",
+        ):
+            st.session_state.tf_choice = tf_name
+            st.rerun()
 
 timeframe_map = {
     "1분": "minutes/1",
     "5분": "minutes/5",
+    "15분": "minutes/15",
+    "30분": "minutes/30",
     "1시간": "minutes/60",
     "4시간": "minutes/240",
 }
@@ -180,51 +156,32 @@ tf_path = timeframe_map[st.session_state.tf_choice]
 
 
 # ---------------------------------------------------------
-# 3. 스마트 차트 설정 드롭다운 메뉴
+# 4. 스마트 차트 설정 메뉴
 # ---------------------------------------------------------
-col_menu_btn, _ = st.columns([2, 5])
+col_menu_btn, _ = st.columns([2, 3])
 with col_menu_btn:
-    if st.button(
-        "⚙️ 스마트 차트 설정 ▾", use_container_width=True, type="tertiary"
-    ):
+    if st.button("⚙️ 지표 설정 ▾", use_container_width=True):
         st.session_state.show_menu = not st.session_state.show_menu
         st.rerun()
 
 if st.session_state.show_menu:
-    with st.container():
-        st.markdown(
-            """
-            <div style="background-color: #1e1e1e; padding: 12px; border: 1px solid #333; border-radius: 8px; margin-bottom: 10px;">
-                <div style="font-weight: bold; color: #ff9800; margin-bottom: 8px; font-size: 13px;">지표 필터 설정</div>
-            </div>
-        """,
-            unsafe_allow_html=True,
+    mc1, mc2, mc3 = st.columns(3)
+    with mc1:
+        st.session_state.show_candle = st.checkbox(
+            "캔들", value=st.session_state.show_candle
         )
-        mc1, mc2 = st.columns(2)
-        with mc1:
-            st.session_state.show_candle = st.checkbox(
-                "Candle", value=st.session_state.show_candle
-            )
-            st.session_state.show_trend1 = st.checkbox(
-                "Trend 1", value=st.session_state.show_trend1
-            )
-            st.session_state.show_goya = st.checkbox(
-                "GOYA LINE", value=st.session_state.show_goya
-            )
-        with mc2:
-            st.session_state.show_trend = st.checkbox(
-                "Trend", value=st.session_state.show_trend
-            )
-            st.session_state.show_smart = st.checkbox(
-                "Smart Line", value=st.session_state.show_smart
-            )
-            st.session_state.show_sr = st.checkbox(
-                "S/R", value=st.session_state.show_sr
-            )
+    with mc2:
+        st.session_state.show_goya = st.checkbox(
+            "GOYA", value=st.session_state.show_goya
+        )
+    with mc3:
+        st.session_state.show_smart = st.checkbox(
+            "Smart", value=st.session_state.show_smart
+        )
 
 
 # ---------------------------------------------------------
-# 4. 데이터 수집 및 오차 개선된 시그널 조건 로직
+# 5. 데이터 수집 및 시그널 처리 로직
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -309,7 +266,7 @@ def get_chart_data(market, tf):
                             "position": "belowBar",
                             "color": "#00E676",
                             "shape": "arrowUp",
-                            "text": "L",
+                            "text": "LONG",
                         }
                     )
                     last_sig = "LONG"
@@ -325,7 +282,7 @@ def get_chart_data(market, tf):
                             "position": "aboveBar",
                             "color": "#FF5252",
                             "shape": "arrowDown",
-                            "text": "S",
+                            "text": "SHORT",
                         }
                     )
                     last_sig = "SHORT"
@@ -355,41 +312,48 @@ else:
     pct_color = "#26a69a" if pct_val >= 0 else "#ef5350"
     pct_str = f"+{pct_val:.2f}%" if pct_val >= 0 else f"{pct_val:.2f}%"
 
+    # 노안을 고려해 큼직하게 구성한 상단 가격 및 변동률 바
     st.markdown(
         f"""
         <div class="goya-subbar">
-            <span style="font-size: 20px; font-weight: bold; color: #ffffff;">{latest_info['close']:,.1f}</span>
-            <span style="font-size: 14px; font-weight: bold; color: {pct_color}; margin-left: 10px;">{pct_str}</span>
+            <span style="font-size: 22px; font-weight: bold; color: #ffffff;">{latest_info['close']:,.1f}</span>
+            <span style="font-size: 16px; font-weight: bold; color: {pct_color};">{pct_str}</span>
         </div>
     """,
         unsafe_allow_html=True,
     )
 
+    # 차트 바로 위 가독성 높은 큼직한 정보 오버레이 박스
     st.markdown(
         f"""
         <div style="
             background: #141414;
             border-bottom: 1px solid #2c2c2c;
-            padding: 8px 16px;
-            font-family: monospace;
-            font-size: 12px;
+            padding: 10px 16px;
+            font-size: 14px;
             color: #d1d4dc;
+            line-height: 1.5;
         ">
-            <span style="color: #ff9800; font-weight: bold;">{st.session_state.selected_coin}</span> &nbsp;
-            <span style="color: #8bc34a;">{latest_info['dt_str']}</span><br>
-            O: <span style="color:#fff;">{latest_info['open']:,.1f}</span> &nbsp;
-            H: <span style="color:#26a69a;">{latest_info['high']:,.1f}</span> &nbsp;
-            L: <span style="color:#ef5350;">{latest_info['low']:,.1f}</span> &nbsp;
-            C: <span style="color:#2196f3;">{latest_info['close']:,.1f}</span><br>
-            <span style="color: #e91e63;">Goya: {latest_info['goya_line']:,.1f}</span> &nbsp;
-            <span style="color: #ffeb3b;">Smart: {latest_info['smart_line']:,.1f}</span>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span style="color: #ff9800; font-weight: bold; font-size: 15px;">{st.session_state.selected_coin} ({st.session_state.tf_choice})</span>
+                <span style="color: #8bc34a; font-weight: bold;">{latest_info['dt_str']}</span>
+            </div>
+            시가 <span style="color:#fff;">{latest_info['open']:,.1f}</span> &nbsp;|&nbsp; 
+            고가 <span style="color:#26a69a;">{latest_info['high']:,.1f}</span><br>
+            저가 <span style="color:#ef5350;">{latest_info['low']:,.1f}</span> &nbsp;|&nbsp; 
+            종가 <span style="color:#2196f3;">{latest_info['close']:,.1f}</span><br>
+            <span style="color: #e91e63; font-weight: bold;">GOYA: {latest_info['goya_line']:,.1f}</span> &nbsp;&nbsp;
+            <span style="color: #ffeb3b; font-weight: bold;">Smart: {latest_info['smart_line']:,.1f}</span>
         </div>
     """,
         unsafe_allow_html=True,
     )
 
+    # ---------------------------------------------------------
+    # 6. 트레이딩뷰 차트 렌더링 (높이 확장 및 가독성 개선)
+    # ---------------------------------------------------------
     chart_options = {
-        "height": 480,
+        "height": 520,
         "layout": {"background": {"color": "#121212"}, "textColor": "#d1d4dc"},
         "grid": {
             "vertLines": {"color": "#1f1f1f"},
@@ -398,7 +362,7 @@ else:
         "timeScale": {
             "timeVisible": True,
             "secondsVisible": False,
-            "rightOffset": 10,
+            "rightOffset": 12,
         },
     }
 
@@ -442,13 +406,17 @@ else:
         key=f"goya_chart_{market_code}_{tf_path}",
     )
 
+# ---------------------------------------------------------
+# 7. 하단 네비게이션바
+# ---------------------------------------------------------
 st.markdown(
     """
+    <div style="height: 60px;"></div>
     <div class="goya-nav">
         <div class="goya-nav-item">🎛️ 마켓</div>
         <div class="goya-nav-item">💡 브리핑</div>
         <div class="goya-nav-item active">🏠 홈</div>
-        <div class="goya-nav-item">🔔 알람</div>
+        <div class="grypto-nav-item">🔔 알람</div>
         <div class="goya-nav-item">⚙️ 설정</div>
     </div>
 """,
