@@ -22,10 +22,10 @@ symbol = st.sidebar.selectbox(
 interval_minutes = st.sidebar.selectbox(
     "시간 봉 설정 (분)",
     [5, 15, 30, 60, 120],
-    index=1,  # 기본값 15분봉
+    index=1,
 )
 
-# 업비트 데이터 가져오기 함수
+# 업비트 데이터 가져오기 및 이평선 계산
 @st.cache_data(ttl=10)
 def get_upbit_klines(symbol, interval_minutes):
     url = f"https://api.upbit.com/v1/candles/minutes/{interval_minutes}?market={symbol}&count=200"
@@ -35,17 +35,15 @@ def get_upbit_klines(symbol, interval_minutes):
         res = requests.get(url, headers=headers, timeout=5).json()
         if not isinstance(res, list):
             st.error(f"API 응답 에러: {res}")
-            return [], [], [], []
+            return [], {}
     except Exception as e:
         st.error(f"네트워크 에러: {e}")
-        return [], [], [], []
+        return [], {}
 
     res.reverse()
 
     candles = []
-    goya_line = []
-    smart_line = []
-    markers = []
+    ma5, ma15, ma30, ma60, ma120 = [], [], [], [], []
     closes = []
 
     for item in res:
@@ -65,29 +63,36 @@ def get_upbit_klines(symbol, interval_minutes):
             "close": close_p
         })
 
-        # 고야선 (60이평)
+        # 이동평균선 데이터 생성
+        if len(closes) >= 5:
+            ma5.append({"time": time_sec, "value": sum(closes[-5:]) / 5})
+        if len(closes) >= 15:
+            ma15.append({"time": time_sec, "value": sum(closes[-15:]) / 15})
+        if len(closes) >= 30:
+            ma30.append({"time": time_sec, "value": sum(closes[-30:]) / 30})
         if len(closes) >= 60:
-            goya_val = sum(closes[-60:]) / 60
-            goya_line.append({"time": time_sec, "value": goya_val})
+            ma60.append({"time": time_sec, "value": sum(closes[-60:]) / 60})
+        if len(closes) >= 120:
+            ma120.append({"time": time_sec, "value": sum(closes[-120:]) / 120})
 
-        # 스마트 라인 (20이평 임시 적용 - 추후 수식 반영 가능)
-        if len(closes) >= 20:
-            smart_val = sum(closes[-20:]) / 20
-            smart_line.append({"time": time_sec, "value": smart_val})
+    ma_dict = {
+        "ma5": ma5,
+        "ma15": ma15,
+        "ma30": ma30,
+        "ma60": ma60,
+        "ma120": ma120
+    }
 
-    return candles, goya_line, smart_line, markers
+    return candles, ma_dict
 
-candles, goya_data, smart_data, markers = get_upbit_klines(symbol, interval_minutes)
+candles, ma_dict = get_upbit_klines(symbol, interval_minutes)
 
 if candles:
-    # 차트 옵션 (십자선 모드 0: 자유 이동 모드로 변경하여 부드러운 드래그 구현)
     chart_options = {
         "layout": {"background": {"type": "solid", "color": "#131722"}, "textColor": "#d1d4dc"},
         "grid": {"vertLines": {"color": "#1f2937"}, "horzLines": {"color": "#1f2937"}},
         "timeScale": {"timeVisible": True, "secondsVisible": False},
-        "crosshair": {
-            "mode": 0  # 0: Normal(자유 커서), 1: Magnet(봉 스냅)
-        }
+        "crosshair": {"mode": 0}  # 자유 드래그 커서 모드
     }
 
     series = [
@@ -98,21 +103,28 @@ if candles:
         },
         {
             "type": "Line", 
-            "data": goya_data, 
-            "options": {
-                "color": "#e91e63",  # 핫핑크 / 마젠타 색상 적용
-                "lineWidth": 2, 
-                "title": "Goya Line (60선)"
-            }
+            "data": ma_dict["ma5"], 
+            "options": {"color": "#00e676", "lineWidth": 1, "title": "5선"}
         },
         {
             "type": "Line", 
-            "data": smart_data, 
-            "options": {
-                "color": "#fbc02d",  # 노란색 적용
-                "lineWidth": 2, 
-                "title": "Smart Line"
-            }
+            "data": ma_dict["ma15"], 
+            "options": {"color": "#29b6f6", "lineWidth": 1, "title": "15선"}
+        },
+        {
+            "type": "Line", 
+            "data": ma_dict["ma30"], 
+            "options": {"color": "#ffeb3b", "lineWidth": 1, "title": "30선"}
+        },
+        {
+            "type": "Line", 
+            "data": ma_dict["ma60"], 
+            "options": {"color": "#e91e63", "lineWidth": 3, "title": "Center Line"}
+        },
+        {
+            "type": "Line", 
+            "data": ma_dict["ma120"], 
+            "options": {"color": "#ab47bc", "lineWidth": 2, "title": "120선"}
         }
     ]
 
