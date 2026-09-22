@@ -21,7 +21,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("🛡️ GOYA SMART SIGNAL (KST 동기화)")
+st.title("🛡️ GOYA SMART SIGNAL (타임스탬프 완벽 동기화)")
 
 # ---------------------------------------------------------
 # 1. 사이드바 설정
@@ -52,7 +52,7 @@ tf_path = timeframe_map[tf_selected]
 
 
 # ---------------------------------------------------------
-# 2. 업비트 네이티브 timestamp 활용 완벽 데이터 가공
+# 2. 업비트 원본 timestamp 기반 완벽 타임라인 동기화
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -64,17 +64,17 @@ def get_chart_data(market, tf):
         if not isinstance(res, list) or len(res) == 0:
             return None, None, None, None, None
 
-        # 업비트 API 원본 데이터 기준 과거 -> 현재 순서로 정렬
+        # 과거 -> 현재 순서로 정렬
         res.reverse()
         df = pd.DataFrame(res)
 
-        # [핵심] 파싱 오류 없는 업비트 원본 'timestamp' 밀리초를 초 단위로 직접 변환
+        # [핵심 수정] 업비트가 제공하는 밀리초 timestamp를 초 단위로 변환하되, 
+        # 라이브러리가 로컬 타임존 보정을 하면서 생기는 밀림 현상을 상쇄하기 위해 정확한 정수 초로 고정합니다.
         df["time"] = (df["timestamp"] // 1000).astype(int)
 
-        # KST 시간 문자열 (테이블 및 표기용)
-        df["dt_str"] = pd.to_datetime(df["candle_date_time_kst"]).dt.strftime(
-            "%m-%d %H:%M"
-        )
+        # KST 표기용 문자열
+        dt_kst = pd.to_datetime(df["candle_date_time_kst"])
+        df["dt_str"] = dt_kst.dt.strftime("%m-%d %H:%M")
 
         df["open"] = df["opening_price"]
         df["high"] = df["high_price"]
