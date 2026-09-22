@@ -52,10 +52,10 @@ tf_path = timeframe_map[tf_selected]
 
 
 # ---------------------------------------------------------
-# 2. 1970년 오류 원천 차단 데이터 가공 (정렬 및 중복 제거)
+# 2. 데이터 안전 수집 및 가공
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
-def get_safe_chart_data(market, tf):
+def get_chart_data(market, tf):
     url = f"https://api.upbit.com/v1/candles/{tf}?market={market}&count=200"
     headers = {"accept": "application/json"}
 
@@ -65,18 +65,14 @@ def get_safe_chart_data(market, tf):
             return None, None, None, None, None
 
         df = pd.DataFrame(res)
+        df.reverse_df = df.iloc[::-1].reset_index(
+            drop=True
+        )  # 과거 -> 현재 정렬
+        df = df.iloc[::-1].reset_index(drop=True)
 
-        # 날짜 파싱 및 결측치 제거
-        df["dt"] = pd.to_datetime(df["candle_date_time_kst"], errors="coerce")
-        df = df.dropna(subset=["dt", "trade_price"])
-
-        # 타임스탬프 변환 및 오름차순 정렬 (과거 -> 현재 순서 필수)
-        df["timestamp_kst_sec"] = (df["dt"].astype("int64") // 10**9).astype(int)
-        df = (
-            df.sort_values("timestamp_kst_sec")
-            .drop_duplicates(subset=["timestamp_kst_sec"])
-            .reset_index(drop=True)
-        )
+        # 시간 변환 (타임스탬프 초 단위 정수형)
+        df["dt"] = pd.to_datetime(df["candle_date_time_kst"])
+        df["time"] = df["dt"].astype("int64") // 10**9
 
         df["open"] = df["opening_price"]
         df["high"] = df["high_price"]
@@ -95,17 +91,13 @@ def get_safe_chart_data(market, tf):
 
         for i in range(len(df)):
             row = df.iloc[i]
-            t_sec = int(row["timestamp_kst_sec"])
-            if t_sec <= 1000000000:  # 비정상 타임스탬프 필터링
-                continue
-
+            t_sec = int(row["time"])
             t_kst_str = row["dt"].strftime("%m-%d %H:%M")
-            c_p, o_p, h_p, l_p = (
-                float(row["close"]),
-                float(row["open"]),
-                float(row["high"]),
-                float(row["low"]),
-            )
+
+            c_p = float(row["close"])
+            o_p = float(row["open"])
+            h_p = float(row["high"])
+            l_p = float(row["low"])
 
             candles.append(
                 {
@@ -126,7 +118,7 @@ def get_safe_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
-            # 롱 / 숏 시그널 판정 로직
+            # 시그널 판정
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
@@ -176,15 +168,14 @@ def get_safe_chart_data(market, tf):
         latest_info = df.iloc[-1]
         return candles, mas, markers, latest_info, signals_table
     except Exception as e:
+        st.error(f"데이터 처리 중 오류 발생: {e}")
         return None, None, None, None, None
 
 
-data_package = get_safe_chart_data(market_code, tf_path)
+data_package = get_chart_data(market_code, tf_path)
 
 if data_package[0] is None:
-    st.error(
-        "⚠️ 데이터를 불러오는 중 오류가 발생했습니다. 새로고침을 눌러주세요."
-    )
+    st.warning("데이터를 불러오는 중입니다...")
 else:
     candles, mas, markers, latest_info, signals_table = data_package
 
@@ -211,16 +202,13 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 4. 트레이딩뷰 스타일 캔들 차트 출력
+    # 4. 캔들 차트 출력
     # ---------------------------------------------------------
     st.subheader(f"📈 {selected_coin} 스마트 캔들 차트")
 
     chart_options = {
         "height": 500,
-        "layout": {
-            "background": {"type": "solid", "color": "#131722"},
-            "textColor": "#d1d4dc",
-        },
+        "layout": {"background": {"color": "#131722"}, "textColor": "#d1d4dc"},
         "grid": {
             "vertLines": {"color": "#1f2937"},
             "horzLines": {"color": "#1f2937"},
