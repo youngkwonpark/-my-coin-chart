@@ -26,30 +26,75 @@ binance_symbols = {
 }
 symbol_binance_tv = binance_symbols[symbol_upbit]
 
-# 5분, 15분, 30분, 60분, 120분 봉 설정
-interval_minutes = st.sidebar.selectbox(
-    "시간 봉 설정 (분)",
-    [5, 15, 30, 60, 120],
-    index=1,
+# 시간 봉 옵션 목록 (화면 표시용)
+timeframe_options = [
+    "1분", "3분", "5분", "10분", "15분", "30분", "45분",
+    "1시간", "2시간", "4시간", "6시간", "8시간", "10시간", "12시간"
+]
+
+selected_timeframe = st.sidebar.selectbox(
+    "시간 봉 선택",
+    timeframe_options,
+    index=4,  # 기본값: 15분
 )
 
-# 트레이딩뷰 인터벌 매핑
-tv_intervals = {
-    5: "5",
-    15: "15",
-    30: "30",
-    60: "60",
-    120: "120"
+# 시간 봉 분 단위 매핑
+timeframe_to_minutes = {
+    "1분": 1,
+    "3분": 3,
+    "5분": 5,
+    "10분": 10,
+    "15분": 15,
+    "30분": 30,
+    "45분": 45,
+    "1시간": 60,
+    "2시간": 120,
+    "4시간": 240,
+    "6시간": 360,
+    "8시간": 480,
+    "10시간": 600,
+    "12시간": 720,
 }
 
-st.title(f"📈 {symbol_upbit} vs {symbol_binance_tv.split(':')[1]} ({interval_minutes}분봉)")
+target_minutes = timeframe_to_minutes[selected_timeframe]
+
+# 트레이딩뷰 위젯 인터벌 매핑
+tv_intervals = {
+    1: "1",
+    3: "3",
+    5: "5",
+    10: "10",
+    15: "15",
+    30: "30",
+    45: "45",
+    60: "60",
+    120: "120",
+    240: "240",
+    360: "360",
+    480: "480",
+    600: "720",  # 바이낸스/TV 지원 대체값 (12h)
+    720: "720"
+}
+
+st.title(f"📈 {symbol_upbit} vs {symbol_binance_tv.split(':')[1]} ({selected_timeframe}봉)")
 
 # ---------------------------------------------------------
-# 1. 상단: 업비트 차트 (Lightweight Charts)
+# 1. 상단: 업비트 차트 데이터 처리
 # ---------------------------------------------------------
 @st.cache_data(ttl=10)
-def get_upbit_klines(symbol, interval_minutes):
-    url = f"https://api.upbit.com/v1/candles/minutes/{interval_minutes}?market={symbol}&count=200"
+def get_upbit_klines(symbol, minutes):
+    # 업비트 원본 지원 분 단위: 1, 3, 5, 10, 15, 30, 45, 60, 240
+    upbit_native_minutes = [1, 3, 5, 10, 15, 30, 45, 60, 240]
+    
+    if minutes in upbit_native_minutes:
+        fetch_minutes = minutes
+        fetch_count = 200
+    else:
+        # 커스텀 시간 단위(2시간, 6시간, 8시간 등)는 60분 봉을 불러와서 병합
+        fetch_minutes = 60
+        fetch_count = min(200 * (minutes // 60), 200)
+
+    url = f"https://api.upbit.com/v1/candles/minutes/{fetch_minutes}?market={symbol}&count={fetch_count}"
     headers = {"accept": "application/json"}
     
     try:
@@ -61,16 +106,32 @@ def get_upbit_klines(symbol, interval_minutes):
 
     res.reverse()
 
+    df = pd.DataFrame(res)
+    df['candle_date_time_utc'] = pd.to_datetime(df['candle_date_time_utc'])
+    df.set_index('candle_date_time_utc', inplace=True)
+
+    # 커스텀 단위 병합 처리
+    if minutes not in upbit_native_minutes:
+        rule = f"{minutes}T"
+        resampled = df.resample(rule, closed='left', label='left').agg({
+            'opening_price': 'first',
+            'high_price': 'max',
+            'low_price': 'min',
+            'trade_price': 'last',
+            'timestamp': 'last'
+        }).dropna()
+        df = resampled
+
     candles = []
     ma5, ma15, ma30, ma60, ma120 = [], [], [], [], []
     closes = []
 
-    for item in res:
-        time_sec = int(item["timestamp"] / 1000)
-        open_p = float(item["opening_price"])
-        high_p = float(item["high_price"])
-        low_p = float(item["low_price"])
-        close_p = float(item["trade_price"])
+    for idx, row in df.iterrows():
+        time_sec = int(idx.timestamp())
+        open_p = float(row["opening_price"])
+        high_p = float(row["high_price"])
+        low_p = float(row["low_price"])
+        close_p = float(row["trade_price"])
 
         closes.append(close_p)
         candles.append({"time": time_sec, "open": open_p, "high": high_p, "low": low_p, "close": close_p})
@@ -103,7 +164,7 @@ def build_chart_config(candles, ma_dict):
 
     return {"chart": chart_options, "series": series}
 
-upbit_candles, upbit_mas = get_upbit_klines(symbol_upbit, interval_minutes)
+upbit_candles, upbit_mas = get_upbit_klines(symbol_upbit, target_minutes)
 
 st.subheader(f"🇰🇷 업비트 ({symbol_upbit})")
 if upbit_candles:
@@ -114,7 +175,7 @@ if upbit_candles:
 # ---------------------------------------------------------
 st.subheader(f"🌐 바이낸스 선물 실시간 ({symbol_binance_tv.split(':')[1]})")
 
-tv_interval = tv_intervals.get(interval_minutes, "15")
+tv_interval = tv_intervals.get(target_minutes, "15")
 
 tradingview_html = f"""
 <!-- TradingView Widget BEGIN -->
