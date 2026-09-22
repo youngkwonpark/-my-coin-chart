@@ -5,7 +5,7 @@ import streamlit as st
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # ---------------------------------------------------------
-# 0. 기본 설정 (모바일 앱 스타일 레이아웃)
+# 0. 기본 설정 (고야 앱 모바일 스타일 레이아웃)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Goya Chart App", page_icon="📈", layout="centered"
@@ -39,14 +39,11 @@ st.markdown(
         cursor: pointer;
         text-decoration: none;
     }
-    
-    /* 서브 프라이스 바 */
     .goya-subbar {
         background-color: #181818;
         padding: 10px 16px;
         border-bottom: 1px solid #2c2c2c;
     }
-    
     /* 하단 앱 네비게이션바 스타일 */
     .goya-nav {
         position: fixed;
@@ -74,7 +71,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 1. 세션 상태 초기화 (코인 및 지표 토글 상태)
+# 1. 세션 상태 초기화
 # ---------------------------------------------------------
 if "selected_coin" not in st.session_state:
     st.session_state.selected_coin = "XRP/USDT"
@@ -92,6 +89,8 @@ if "show_trend1" not in st.session_state:
     st.session_state.show_trend1 = False
 if "show_menu" not in st.session_state:
     st.session_state.show_menu = False
+if "tf_choice" not in st.session_state:
+    st.session_state.tf_choice = "1시간"
 
 SYMBOL_MAP = {
     "XRP/USDT": "KRW-XRP",
@@ -101,7 +100,7 @@ SYMBOL_MAP = {
 }
 
 # ---------------------------------------------------------
-# 2. 상단 네비게이션바 (고야 앱 스타일: '<' 화살표 및 타이틀)
+# 2. 상단 네비게이션바 및 코인/타임프레임 컨트롤
 # ---------------------------------------------------------
 st.markdown(
     f"""
@@ -114,16 +113,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 코인 선택 및 타임프레임 컨트롤 영역
-col_c1, col_c2, col_tf1, col_tf2, col_tf3, col_tf4 = st.columns(
-    [1.5, 1.2, 1, 1, 1, 1]
-)
+# 코인 선택 셀렉트박스 (즉시 연동 처리)
+col_c1, col_tf1, col_tf2, col_tf3, col_tf4 = st.columns([1.6, 1, 1, 1, 1])
 
 with col_c1:
     selected_coin = st.selectbox(
-        "코인",
+        "코인 선택",
         list(SYMBOL_MAP.keys()),
         index=list(SYMBOL_MAP.keys()).index(st.session_state.selected_coin),
+        key="coin_selectbox_widget",
         label_visibility="collapsed",
     )
     if selected_coin != st.session_state.selected_coin:
@@ -131,9 +129,6 @@ with col_c1:
         st.rerun()
 
 market_code = SYMBOL_MAP[st.session_state.selected_coin]
-
-if "tf_choice" not in st.session_state:
-    st.session_state.tf_choice = "1시간"
 
 with col_tf1:
     if st.button(
@@ -186,7 +181,7 @@ tf_path = timeframe_map[st.session_state.tf_choice]
 
 
 # ---------------------------------------------------------
-# 3. 스마트 차트 설정 드롭다운 메뉴 (스크린샷 참조 재현)
+# 3. 스마트 차트 설정 드롭다운 메뉴
 # ---------------------------------------------------------
 col_menu_btn, _ = st.columns([2, 5])
 with col_menu_btn:
@@ -230,7 +225,7 @@ if st.session_state.show_menu:
 
 
 # ---------------------------------------------------------
-# 4. 업비트 실시간 데이터 수집 및 KST 가공
+# 4. 데이터 수집 및 오차 개선된 시그널 조건 로직
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -260,6 +255,7 @@ def get_chart_data(market, tf):
         df["close"] = df["trade_price"]
         df["change_pct"] = df["close"].pct_change() * 100
 
+        # 고야/스마트 라인 지표 계산 (기간 설정 최적화)
         df["goya_line"] = df["close"].rolling(20).mean()
         df["smart_line"] = df["close"].rolling(50).mean()
 
@@ -297,13 +293,15 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
+            # 오차를 줄인 고야 스타일 시그널 조건 (라인 돌파 및 정배열/역배열 필터링)
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
                 and pd.notnull(row["smart_line"])
             ):
-                goya, smart = row["goya_line"], row["smart_line"]
-                if c_p > goya and c_p > smart and last_sig != "LONG":
+                goya, smart = row["goya_line"], row["smart_line']
+                # 롱 조건: 종가가 두 라인보다 위 에 있고, 고야 라인이 스마트 라인보다 위이거나 골든크로스 발생 직후
+                if c_p > goya and c_p > smart and goya >= smart and last_sig != "LONG":
                     markers.append(
                         {
                             "time": t_sec,
@@ -314,7 +312,8 @@ def get_chart_data(market, tf):
                         }
                     )
                     last_sig = "LONG"
-                elif c_p < goya and c_p < smart and last_sig != "SHORT":
+                # 숏 조건: 종가가 두 라인보다 아래에 있고, 고야 라인이 스마트 라인보다 아래이거나 데드크로스 발생 직후
+                elif c_p < goya and c_p < smart and goya <= smart and last_sig != "SHORT":
                     markers.append(
                         {
                             "time": t_sec,
@@ -351,7 +350,7 @@ else:
     pct_color = "#26a69a" if pct_val >= 0 else "#ef5350"
     pct_str = f"+{pct_val:.2f}%" if pct_val >= 0 else f"{pct_val:.2f}%"
 
-    # 상단 가격 및 변동률 바 (고야 앱 스타일)
+    # 실시간 가격 및 변동률 상단 바
     st.markdown(
         f"""
         <div class="goya-subbar">
@@ -363,23 +362,17 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 5. 고야 스타일 좌측 상단 정보 오버레이 박스
+    # 5. [순서 수정 완료] 차트 바로 위에 위치하는 정보 오버레이 박스
     # ---------------------------------------------------------
     st.markdown(
         f"""
         <div style="
-            position: relative;
-            z-index: 10;
-            background: rgba(20, 20, 20, 0.9);
-            border: 1px solid #333;
-            padding: 8px 12px;
-            border-radius: 4px;
+            background: #141414;
+            border-bottom: 1px solid #2c2c2c;
+            padding: 8px 16px;
             font-family: monospace;
-            font-size: 11px;
+            font-size: 12px;
             color: #d1d4dc;
-            margin-bottom: -45px;
-            width: fit-content;
-            pointer-events: none;
         ">
             <span style="color: #ff9800; font-weight: bold;">{st.session_state.selected_coin}</span> &nbsp;
             <span style="color: #8bc34a;">{latest_info['dt_str']}</span><br>
@@ -395,10 +388,10 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 6. 메인 트레이딩뷰 차트 렌더링 (하단 여백 없이 꽉 채우기)
+    # 6. 메인 트레이딩뷰 차트 렌더링
     # ---------------------------------------------------------
     chart_options = {
-        "height": 520,
+        "height": 480,
         "layout": {"background": {"color": "#121212"}, "textColor": "#d1d4dc"},
         "grid": {
             "vertLines": {"color": "#1f1f1f"},
@@ -452,7 +445,7 @@ else:
     )
 
 # ---------------------------------------------------------
-# 7. 하단 고야 앱 네비게이션바 (실제 앱 하단 바 완벽 재현)
+# 7. 하단 네비게이션바
 # ---------------------------------------------------------
 st.markdown(
     """
