@@ -18,10 +18,11 @@ symbol = st.sidebar.selectbox(
     index=0,
 )
 
+# 5분, 15분, 30분, 60분, 120분 봉 설정
 interval_minutes = st.sidebar.selectbox(
-    "시간 봉 설정",
-    [1, 3, 5, 15, 30, 60, 240],
-    index=3,  # 기본값 15분봉
+    "시간 봉 설정 (분)",
+    [5, 15, 30, 60, 120],
+    index=1,  # 기본값 15분봉
 )
 
 # 업비트 데이터 가져오기 함수
@@ -39,7 +40,6 @@ def get_upbit_klines(symbol, interval_minutes):
         st.error(f"네트워크 에러: {e}")
         return [], [], [], []
 
-    # 업비트 데이터는 최신순으로 넘어오므로 과거 순으로 정렬
     res.reverse()
 
     candles = []
@@ -70,49 +70,50 @@ def get_upbit_klines(symbol, interval_minutes):
             goya_val = sum(closes[-60:]) / 60
             goya_line.append({"time": time_sec, "value": goya_val})
 
-        # 스마트 라인 (20이평)
+        # 스마트 라인 (20이평 임시 적용 - 추후 수식 반영 가능)
         if len(closes) >= 20:
             smart_val = sum(closes[-20:]) / 20
             smart_line.append({"time": time_sec, "value": smart_val})
-
-        # 시그널 조건 (20이평 돌파 예시)
-        if len(closes) >= 21:
-            prev_close = closes[-2]
-            prev_smart = sum(closes[-21:-1]) / 20
-            curr_smart = smart_val
-
-            if prev_close <= prev_smart and close_p > curr_smart:
-                markers.append({
-                    "time": time_sec,
-                    "position": "belowBar",
-                    "color": "#26a69a",
-                    "shape": "arrowUp",
-                    "text": "BUY"
-                })
-            elif prev_close >= prev_smart and close_p < curr_smart:
-                markers.append({
-                    "time": time_sec,
-                    "position": "aboveBar",
-                    "color": "#ef5350",
-                    "shape": "arrowDown",
-                    "text": "SELL"
-                })
 
     return candles, goya_line, smart_line, markers
 
 candles, goya_data, smart_data, markers = get_upbit_klines(symbol, interval_minutes)
 
 if candles:
+    # 차트 옵션 (십자선 모드 0: 자유 이동 모드로 변경하여 부드러운 드래그 구현)
     chart_options = {
         "layout": {"background": {"type": "solid", "color": "#131722"}, "textColor": "#d1d4dc"},
         "grid": {"vertLines": {"color": "#1f2937"}, "horzLines": {"color": "#1f2937"}},
-        "timeScale": {"timeVisible": True, "secondsVisible": False}
+        "timeScale": {"timeVisible": True, "secondsVisible": False},
+        "crosshair": {
+            "mode": 0  # 0: Normal(자유 커서), 1: Magnet(봉 스냅)
+        }
     }
 
     series = [
-        {"type": "Candlestick", "data": candles, "options": {"upColor": "#26a69a", "downColor": "#ef5350"}},
-        {"type": "Line", "data": goya_data, "options": {"color": "#ff9800", "lineWidth": 2, "title": "60 MA (고야선)"}},
-        {"type": "Line", "data": smart_data, "options": {"color": "#2196f3", "lineWidth": 2, "title": "20 MA (스마트 라인)"}}
+        {
+            "type": "Candlestick", 
+            "data": candles, 
+            "options": {"upColor": "#26a69a", "downColor": "#ef5350"}
+        },
+        {
+            "type": "Line", 
+            "data": goya_data, 
+            "options": {
+                "color": "#e91e63",  # 핫핑크 / 마젠타 색상 적용
+                "lineWidth": 2, 
+                "title": "Goya Line (60선)"
+            }
+        },
+        {
+            "type": "Line", 
+            "data": smart_data, 
+            "options": {
+                "color": "#fbc02d",  # 노란색 적용
+                "lineWidth": 2, 
+                "title": "Smart Line"
+            }
+        }
     ]
 
     renderLightweightCharts([{"chart": chart_options, "series": series}])
