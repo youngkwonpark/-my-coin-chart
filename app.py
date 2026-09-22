@@ -21,7 +21,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("🛡️ GOYA SMART SIGNAL (타임스탬프 완벽 동기화)")
+st.title("🛡️ GOYA SMART SIGNAL (KST 절대 타임스탬프 고정)")
 
 # ---------------------------------------------------------
 # 1. 사이드바 설정
@@ -52,7 +52,7 @@ tf_path = timeframe_map[tf_selected]
 
 
 # ---------------------------------------------------------
-# 2. 업비트 원본 timestamp 기반 완벽 타임라인 동기화
+# 2. KST -> UTC 절대 타임스탬프 변환 (시간 엇나가기 원인 박멸)
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -68,12 +68,12 @@ def get_chart_data(market, tf):
         res.reverse()
         df = pd.DataFrame(res)
 
-        # [핵심 수정] 업비트가 제공하는 밀리초 timestamp를 초 단위로 변환하되, 
-        # 라이브러리가 로컬 타임존 보정을 하면서 생기는 밀림 현상을 상쇄하기 위해 정확한 정수 초로 고정합니다.
-        df["time"] = (df["timestamp"] // 1000).astype(int)
-
-        # KST 표기용 문자열
+        # [핵심] 업비트의 KST 문자열을 명확히 KST(Asia/Seoul)로 인지시킨 뒤, 
+        # Lightweight Charts가 요구하는 UTC 기준 epoch timestamp(정수 초)로 완벽 변환합니다.
         dt_kst = pd.to_datetime(df["candle_date_time_kst"])
+        dt_utc_epochs = dt_kst.dt.tz_localize("Asia/Seoul").dt.tz_convert("UTC").astype("int64") // 10**9
+        
+        df["time"] = dt_utc_epochs
         df["dt_str"] = dt_kst.dt.strftime("%m-%d %H:%M")
 
         df["open"] = df["opening_price"]
