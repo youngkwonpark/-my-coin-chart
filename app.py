@@ -113,7 +113,7 @@ SYMBOL_MAP = {
     "ADA/USDT": "KRW-ADA",
 }
 
-# 업비트 공식 지원 타임프레임 전체 매핑 (에러 방지)
+# 업비트 공식 지원 타임프레임 전체 매핑 (일봉 포함)
 UPBIT_TF_CONFIG = {
     "1분": "minutes/1",
     "3분": "minutes/3",
@@ -190,7 +190,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 앞에 상시 노출할 주요 타임프레임들
 main_tfs = ["1분", "5분", "15분", "30분", "1시간"]
 tf_cols = st.columns(len(main_tfs) + 1)
 
@@ -206,7 +205,6 @@ for idx, tf_name in enumerate(main_tfs):
             st.session_state.tf_choice = tf_name
             st.rerun()
 
-# 맨 우측에 바이낸스 스타일 'More ▼ / ▲' 버튼 배치
 with tf_cols[-1]:
     more_label = "More ▲" if st.session_state.show_more_tf else "More ▼"
     if st.button(
@@ -215,7 +213,6 @@ with tf_cols[-1]:
         st.session_state.show_more_tf = not st.session_state.show_more_tf
         st.rerun()
 
-# More 버튼을 눌렀을 때 아래로 쭈르륵 펼쳐지는 전체 타임프레임 리스트
 if st.session_state.show_more_tf:
     st.markdown(
         "<div style='margin-top: 10px; padding-top: 10px; border-top: 1px dashed #444;'>",
@@ -268,7 +265,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------
-# 5. 데이터 수집 및 KST 시간 보정 로직
+# 5. 데이터 수집 및 일봉/분봉 공통 시간 보정 로직
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -282,11 +279,14 @@ def get_chart_data(market, tf):
         res.reverse()
         df = pd.DataFrame(res)
 
-        dt_kst = pd.to_datetime(
-            df["candle_date_time_kst"]
+        # 일봉과 분봉의 날짜 필드명 차이를 안전하게 처리
+        time_col = (
+            "candle_date_time_kst"
             if "candle_date_time_kst" in df.columns
-            else df["candle_date_time_utc"]
+            else "candle_date_time_utc"
         )
+        dt_kst = pd.to_datetime(df[time_col])
+
         df["time"] = dt_kst.apply(
             lambda x: int(
                 x.replace(
