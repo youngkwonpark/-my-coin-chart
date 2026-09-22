@@ -26,12 +26,12 @@ binance_symbols = {
 }
 symbol_binance_tv = binance_symbols[symbol_upbit]
 
-# 세션 상태에 선택된 시간 봉 저장 (기본값: 15분)
+# 세션 상태 초기화
 if "selected_tf" not in st.session_state:
     st.session_state.selected_tf = "15분"
 
-# 시간 봉 옵션
-tf_list = [
+# 시간 봉 설정 및 매핑
+all_tf_list = [
     "1분", "3분", "5분", "10분", "15분", "30분", "45분",
     "1시간", "2시간", "4시간", "6시간", "8시간", "10시간", "12시간"
 ]
@@ -49,22 +49,41 @@ tv_intervals = {
 st.title(f"📈 {symbol_upbit} vs {symbol_binance_tv.split(':')[1]}")
 
 # ---------------------------------------------------------
-# 상단 시간 봉 클릭 버튼 레이아웃 (바이낸스 스타일)
+# 바이낸스 스타일 시간 봉 선택바 (자주 쓰는 4개 + 화살표 드롭다운)
 # ---------------------------------------------------------
 st.write("⏱️ **시간 봉 선택**")
-cols = st.columns(len(tf_list))
 
-for i, tf in enumerate(tf_list):
-    # 현재 선택된 버튼은 강조 표시
-    button_label = f"[{tf}]" if st.session_state.selected_tf == tf else tf
-    if cols[i].button(button_label, key=f"tf_btn_{tf}", use_container_width=True):
-        st.session_state.selected_tf = tf
+# 바이낸스처럼 자주 쓰는 퀵 버튼 4개
+quick_tfs = ["1분", "5분", "15분", "1시간"]
+
+# 레이아웃: 퀵버튼 4개(각 1.2비율) + 전체 드롭다운 1개(3비율)
+c1, c2, c3, c4, c_more = st.columns([1.2, 1.2, 1.2, 1.2, 3])
+
+quick_cols = [c1, c2, c3, c4]
+for idx, q_tf in enumerate(quick_tfs):
+    label = f"[{q_tf}]" if st.session_state.selected_tf == q_tf else q_tf
+    if quick_cols[idx].button(label, key=f"quick_{q_tf}", use_container_width=True):
+        st.session_state.selected_tf = q_tf
         st.rerun()
+
+# 화살표(▼) 클릭 시 전체 시간 목록이 나오는 드롭다운
+selected_from_dropdown = c_more.selectbox(
+    "전체 시간 선택",
+    all_tf_list,
+    index=all_tf_list.index(st.session_state.selected_tf),
+    key="tf_selectbox",
+    label_visibility="collapsed"
+)
+
+# 드롭다운 변경 시 세션 업데이트
+if selected_from_dropdown != st.session_state.selected_tf:
+    st.session_state.selected_tf = selected_from_dropdown
+    st.rerun()
 
 current_tf = st.session_state.selected_tf
 target_minutes = timeframe_to_minutes[current_tf]
 
-st.markdown(f"**현재 설정:** `<{current_tf}>` 봉 차트", unsafe_allow_html=True)
+st.markdown(f"**현재 적용:** `<{current_tf}>` 봉 차트", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # 1. 상단: 업비트 차트
