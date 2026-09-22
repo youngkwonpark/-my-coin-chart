@@ -21,7 +21,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("🛡️ GOYA SMART SIGNAL (KST 절대 타임스탬프 고정)")
+st.title("🛡️ GOYA SMART SIGNAL (KST 시간 축 고정 버전)")
 
 # ---------------------------------------------------------
 # 1. 사이드바 설정
@@ -52,7 +52,7 @@ tf_path = timeframe_map[tf_selected]
 
 
 # ---------------------------------------------------------
-# 2. KST -> UTC 절대 타임스탬프 변환 (시간 엇나가기 원인 박멸)
+# 2. 데이터 수집 및 KST 시간 축 왜곡 방지 가공
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -68,12 +68,10 @@ def get_chart_data(market, tf):
         res.reverse()
         df = pd.DataFrame(res)
 
-        # [핵심] 업비트의 KST 문자열을 명확히 KST(Asia/Seoul)로 인지시킨 뒤, 
-        # Lightweight Charts가 요구하는 UTC 기준 epoch timestamp(정수 초)로 완벽 변환합니다.
+        # [핵심 수정] 브라우저 시간대 보정으로 인한 시간 꼬임/1970년 튀김 현상 방지:
+        # KST 문자열을 그대로 순수 타임스탬프(초)로 변환하여 차트에 다이렉트로 전달합니다.
         dt_kst = pd.to_datetime(df["candle_date_time_kst"])
-        dt_utc_epochs = dt_kst.dt.tz_localize("Asia/Seoul").dt.tz_convert("UTC").astype("int64") // 10**9
-        
-        df["time"] = dt_utc_epochs
+        df["time"] = dt_kst.astype("int64") // 10**9
         df["dt_str"] = dt_kst.dt.strftime("%m-%d %H:%M")
 
         df["open"] = df["opening_price"]
@@ -81,7 +79,7 @@ def get_chart_data(market, tf):
         df["low"] = df["low_price"]
         df["close"] = df["trade_price"]
 
-        # 이동평균선 계산
+        # 이동평균선 계산 (디테일한 시그널 산출을 위한 기준선)
         df["goya_line"] = df["close"].rolling(20).mean()
         df["smart_line"] = df["close"].rolling(50).mean()
 
@@ -120,7 +118,7 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
-            # 시그널 판정
+            # 시그널 판정 로직 (이동평균선 돌파 및 골든/데드크로스 연동)
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
@@ -181,7 +179,7 @@ else:
     candles, mas, markers, latest_info, signals_table = data_package
 
     # ---------------------------------------------------------
-    # 3. 상단 실시간 OHLCV 지표 출력
+    # 3. 상단 실시간 OHLCV 지표 출력 (고야 차트 스타일 상단 바)
     # ---------------------------------------------------------
     st.markdown("### 📌 실시간 OHLCV (한국시간 KST 기준)")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -214,7 +212,11 @@ else:
             "vertLines": {"color": "#1f2937"},
             "horzLines": {"color": "#1f2937"},
         },
-        "timeScale": {"timeVisible": True, "secondsVisible": False},
+        "timeScale": {
+            "timeVisible": True,
+            "secondsVisible": False,
+            "rightOffset": 12,
+        },
     }
 
     series = [
