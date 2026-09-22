@@ -16,7 +16,7 @@ symbol_upbit = st.sidebar.selectbox(
     index=0,
 )
 
-# 거래소 심볼 매핑
+# 바이낸스 심볼 매핑
 binance_symbols = {
     "KRW-BTC": "BTCUSDT",
     "KRW-ETH": "ETHUSDT",
@@ -82,40 +82,40 @@ def get_upbit_klines(symbol, interval_minutes):
     return candles, {"ma5": ma5, "ma15": ma15, "ma30": ma30, "ma60": ma60, "ma120": ma120}
 
 # ---------------------------------------------------------
-# 2. 해외 거래소 데이터 수집 (우회 서버 및 Bybit 우회 연동)
+# 2. 바이낸스 프록시 우회 수집
 # ---------------------------------------------------------
 @st.cache_data(ttl=10)
-def get_foreign_klines(symbol, interval_minutes):
+def get_binance_proxy_klines(symbol, interval_minutes):
     interval_str = binance_intervals.get(interval_minutes, "15m")
     
-    # 1. 바이낸스 공식 우회 공용 도메인
-    urls = [
-        f"https://api.binance.vision/api/v3/klines?symbol={symbol}&interval={interval_str}&limit=200",
-        f"https://api1.binance.com/api/v3/klines?symbol={symbol}&interval={interval_str}&limit=200",
-        f"https://api3.binance.com/api/v3/klines?symbol={symbol}&interval={interval_str}&limit=200"
-    ]
+    # 바이낸스 원본 URL
+    target_url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval_str}&limit=200"
     
-    res = None
-    for url in urls:
-        try:
-            r = requests.get(url, timeout=3)
-            if r.status_code == 200:
-                res = r.json()
-                if isinstance(res, list) and len(res) > 0:
-                    break
-        except Exception:
-            continue
+    # CORS/IP 차단 회피 프록시 URL
+    proxy_url = f"https://api.allorigins.win/get?url={requests.utils.quote(target_url)}"
 
-    # 바이낸스 서버 전부 막혔을 때 Bybit(바이비트)로 자동 전환 백업
+    res = None
+    try:
+        r = requests.get(proxy_url, timeout=7).json()
+        if "contents" in r:
+            import json
+            res = json.loads(r["contents"])
+    except Exception:
+        pass
+
+    # 프록시 실패 시 대비 2차 백업 (Bybit 프록시)
     if not res or not isinstance(res, list):
         try:
-            bybit_interval = str(interval_minutes)
-            bybit_url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval={bybit_interval}&limit=200"
-            r = requests.get(bybit_url, timeout=3).json()
-            if r.get("retCode") == 0 and "list" in r.get("result", {}):
-                raw_list = r["result"]["list"]
-                raw_list.reverse()
-                res = [[int(x[0]), x[1], x[2], x[3], x[4]] for x in raw_list]
+            bybit_url = f"https://api.bybit.com/v5/market/kline?category=spot&symbol={symbol}&interval={interval_minutes}&limit=200"
+            b_proxy = f"https://api.allorigins.win/get?url={requests.utils.quote(bybit_url)}"
+            r = requests.get(b_proxy, timeout=7).json()
+            if "contents" in r:
+                import json
+                b_data = json.loads(r["contents"])
+                if b_data.get("retCode") == 0:
+                    raw_list = b_data["result"]["list"]
+                    raw_list.reverse()
+                    res = [[int(x[0]), x[1], x[2], x[3], x[4]] for x in raw_list]
         except Exception:
             pass
 
@@ -167,15 +167,15 @@ def build_chart_config(candles, ma_dict):
 
 # 데이터 호출
 upbit_candles, upbit_mas = get_upbit_klines(symbol_upbit, interval_minutes)
-foreign_candles, foreign_mas = get_foreign_klines(symbol_binance, interval_minutes)
+binance_candles, binance_mas = get_binance_proxy_klines(symbol_binance, interval_minutes)
 
 # 화면 출력
 st.subheader(f"🇰🇷 업비트 ({symbol_upbit})")
 if upbit_candles:
     renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas)], key="upbit_chart")
 
-st.subheader(f"🌐 바이낸스/해외 실시간 ({symbol_binance})")
-if foreign_candles:
-    renderLightweightCharts([build_chart_config(foreign_candles, foreign_mas)], key="foreign_chart")
+st.subheader(f"🌐 바이낸스 실시간 ({symbol_binance})")
+if binance_candles:
+    renderLightweightCharts([build_chart_config(binance_candles, binance_mas)], key="binance_chart")
 else:
-    st.error("해외 거래소 시세 데이터를 불러오는 중입니다. 5초 후 새로고침해 주세요.")
+    st.error("데이터 로딩 중입니다. 3초 후 새로고침해 주세요.")
