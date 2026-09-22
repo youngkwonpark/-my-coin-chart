@@ -6,7 +6,7 @@ import streamlit.components.v1 as components
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # ---------------------------------------------------------
-# 0. 기본 설정 및 다크 테마 (사이드바 기본 펼침/숨김 제어 포함)
+# 0. 기본 설정 및 다크 테마
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Goya Signal Precision Dashboard",
@@ -27,7 +27,7 @@ st.markdown(
 st.title("🛡️ GOYA SMART SIGNAL & BINANCE INTEGRATION")
 
 # ---------------------------------------------------------
-# 1. 사이드바 설정 (코인 검색/선택 및 타임프레임)
+# 1. 사이드바 설정 (코인 선택 및 타임프레임)
 # ---------------------------------------------------------
 st.sidebar.header("🎛️ 차트 제어 패널")
 
@@ -38,7 +38,6 @@ SYMBOL_MAP = {
     "ETH (이더리움)": {"upbit": "KRW-ETH", "binance": "ETH"},
 }
 
-# 돋보기 검색 및 셀렉트박스 기능
 coin_list = list(SYMBOL_MAP.keys())
 selected_coin = st.sidebar.selectbox("🪙 코인 선택", coin_list, index=0)
 
@@ -60,7 +59,7 @@ tv_interval = timeframe_map[tf_selected]["tv"]
 
 
 # ---------------------------------------------------------
-# 2. 데이터 수집 및 KST 시간 축 고정 가공
+# 2. 데이터 수집 및 KST 시간 축 왜곡 원인 차단
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -70,14 +69,19 @@ def get_chart_data(market, tf):
     try:
         res = requests.get(url, headers=headers, timeout=5).json()
         if not isinstance(res, list) or len(res) == 0:
-            return None, None, None, None, None
+            return None, None, None, None
 
-        res.reverse()  # 과거 -> 현재 정렬
+        res.reverse()  # 과거 -> 현재 순서로 정렬
         df = pd.DataFrame(res)
 
-        # 시간 오차 및 1970년 튀김 현상 방지 (KST 절대 타임스탬프 고정)
+        # [핵심] KST 문자열을 완벽하게 인식시켜 1970년 오류 및 시간 밀림 현상 방지
         dt_kst = pd.to_datetime(df["candle_date_time_kst"])
-        df["time"] = dt_kst.astype("int64") // 10**9
+        df["time"] = (
+            dt_kst.dt.tz_localize("Asia/Seoul")
+            .dt.tz_convert("UTC")
+            .astype("int64")
+            // 10**9
+        )
         df["dt_str"] = dt_kst.dt.strftime("%m-%d %H:%M")
 
         df["open"] = df["opening_price"]
@@ -85,20 +89,18 @@ def get_chart_data(market, tf):
         df["low"] = df["low_price"]
         df["close"] = df["trade_price"]
 
-        # 이동평균선 계산
+        # 이동평균선 계산 (고야라인 20선, 스마트라인 50선)
         df["goya_line"] = df["close"].rolling(20).mean()
         df["smart_line"] = df["close"].rolling(50).mean()
 
         candles = []
         goya_data, smart_data = [], []
         markers = []
-        signals_table = []
         last_sig = None
 
         for i in range(len(df)):
             row = df.iloc[i]
             t_sec = int(row["time"])
-            t_kst_str = row["dt_str"]
 
             c_p = float(row["close"])
             o_p = float(row["open"])
@@ -124,7 +126,7 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
-            # 시그널 판정 로직
+            # 시그널 판정
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
@@ -143,13 +145,6 @@ def get_chart_data(market, tf):
                             "text": "L",
                         }
                     )
-                    signals_table.append(
-                        {
-                            "시간 (KST)": t_kst_str,
-                            "시그널": "🟢 L (LONG)",
-                            "가격": f"{c_p:,.0f} 원",
-                        }
-                    )
                     last_sig = "LONG"
                 elif c_p < goya and c_p < smart and last_sig != "SHORT":
                     markers.append(
@@ -161,20 +156,13 @@ def get_chart_data(market, tf):
                             "text": "S",
                         }
                     )
-                    signals_table.append(
-                        {
-                            "시간 (KST)": t_kst_str,
-                            "시그널": "🔴 S (SHORT)",
-                            "가격": f"{c_p:,.0f} 원",
-                        }
-                    )
                     last_sig = "SHORT"
 
         mas = {"goya": goya_data, "smart": smart_data}
         latest_info = df.iloc[-1]
-        return candles, mas, markers, latest_info, signals_table
+        return candles, mas, markers, latest_info
     except Exception as e:
-        return None, None, None, None, None
+        return None, None, None, None
 
 
 data_package = get_chart_data(market_code, tf_path)
@@ -182,37 +170,32 @@ data_package = get_chart_data(market_code, tf_path)
 if data_package[0] is None:
     st.error("⚠️ 데이터를 불러오는 중입니다. 잠시 후 새로고침해 주세요.")
 else:
-    candles, mas, markers, latest_info, signals_table = data_package
+    candles, mas, markers, latest_info = data_package
 
     # ---------------------------------------------------------
-    # 3. 상단 실시간 OHLCV 지표 출력
-    # ---------------------------------------------------------
-    st.markdown("### 📌 실시간 OHLCV (한국시간 KST 기준)")
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("시가 (Open)", f"{latest_info['open']:,} 원")
-    c2.metric("고가 (High)", f"{latest_info['high']:,} 원")
-    c3.metric("저가 (Low)", f"{latest_info['low']:,} 원")
-    c4.metric("종가 (Close)", f"{latest_info['close']:,} 원")
-    c5.metric(
-        "Goya Line",
-        f"{latest_info['goya_line']:,.1f}"
-        if pd.notnull(latest_info["goya_line"])
-        else "-",
-    )
-    c6.metric(
-        "Smart Line",
-        f"{latest_info['smart_line']:,.1f}"
-        if pd.notnull(latest_info["smart_line"])
-        else "-",
-    )
-
-    # ---------------------------------------------------------
-    # 4. 업비트 기반 커스텀 캔들 차트 (Goya Smart Signal)
+    # 3. 차트 좌측 상단 스타일의 실시간 OHLCV 오버레이 구현
     # ---------------------------------------------------------
     st.subheader(f"📈 {selected_coin} 업비트 스마트 캔들 차트")
 
+    # 고야 차트처럼 마우스 오버 또는 최신 바의 상세 정보를 보여주는 좌측 상단 박스 스타일 적용
+    st.markdown(
+        f"""
+        <div style="background-color: #1e222d; padding: 10px 15px; border-radius: 6px; font-family: monospace; font-size: 14px; margin-bottom: 10px; border: 1px solid #2a2e39;">
+            <span style="color: #ffeb3b; font-weight: bold;">{selected_coin}</span> &nbsp;|&nbsp; 
+            <span style="color: #9aca3c;">🕒 {latest_info['candle_date_time_kst']}</span><br>
+            <span style="color: #d1d4dc;">O: <b>{latest_info['open']:,}</b></span> &nbsp;
+            <span style="color: #26a69a;">H: <b>{latest_info['high']:,}</b></span> &nbsp;
+            <span style="color: #ef5350;">L: <b>{latest_info['low']:,}</b></span> &nbsp;
+            <span style="color: #2196f3;">C: <b>{latest_info['close']:,}</b></span> &nbsp;
+            <span style="color: #e91e63;">Goya: <b>{latest_info['goya_line']:,.1f}</b></span> &nbsp;
+            <span style="color: #ffeb3b;">Smart: <b>{latest_info['smart_line']:,.1f}</b></span>
+        </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
     chart_options = {
-        "height": 450,
+        "height": 480,
         "layout": {"background": {"color": "#131722"}, "textColor": "#d1d4dc"},
         "grid": {
             "vertLines": {"color": "#1f2937"},
@@ -258,18 +241,7 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 5. 하단 시그널 히스토리 테이블
-    # ---------------------------------------------------------
-    st.subheader("🔔 발생한 스마트 시그널 히스토리")
-    if signals_table:
-        st.dataframe(
-            pd.DataFrame(reversed(signals_table)), use_container_width=True
-        )
-    else:
-        st.info("현재 구간에서 발생한 시그널이 없습니다.")
-
-    # ---------------------------------------------------------
-    # 6. 바이낸스 실시간 차트 연동 (하단 배치 복구)
+    # 4. 바이낸스 실시간 연동 차트 (하단)
     # ---------------------------------------------------------
     st.markdown("---")
     st.subheader(
