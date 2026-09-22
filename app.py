@@ -4,27 +4,38 @@ import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_lightweight_charts import renderLightweightCharts
 
-# 웹 페이지 설정
+# 웹 페이지 기본 설정
 st.set_page_config(
-    page_title="Crypto Chart Dashboard", page_icon="📈", layout="wide"
+    page_title="Crypto Long/Short Dashboard", page_icon="📈", layout="wide"
 )
 
-# 사이드바 설정 (코인 선택)
-st.sidebar.header("⚙️ 코인 선택")
-symbol_upbit = st.sidebar.selectbox(
-    "업비트 코인 선택",
-    ["KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-XRP"],
-    index=0,
-)
-
-# 바이낸스 선물 심볼 매핑
-binance_symbols = {
-    "KRW-BTC": "BINANCE:BTCUSDT.P",
-    "KRW-ETH": "BINANCE:ETHUSDT.P",
-    "KRW-SOL": "BINANCE:SOLUSDT.P",
-    "KRW-XRP": "BINANCE:XRPUSDT.P"
+# ---------------------------------------------------------
+# 1. 코인 검색 및 심볼 매핑 설정
+# ---------------------------------------------------------
+# 업비트 KRW 마켓 코인 목록 및 바이낸스 선물 매핑 테이블
+COIN_MAP = {
+    "BTC (비트코인)": {"upbit": "KRW-BTC", "binance": "BINANCE:BTCUSDT.P"},
+    "ZEC (제트캐시)": {"upbit": "KRW-ZEC", "binance": "BINANCE:ZECUSDT.P"},
+    "XRP (리플)": {"upbit": "KRW-XRP", "binance": "BINANCE:XRPUSDT.P"},
+    "ETH (이더리움)": {"upbit": "KRW-ETH", "binance": "BINANCE:ETHUSDT.P"},
+    "SOL (솔라나)": {"upbit": "KRW-SOL", "binance": "BINANCE:SOLUSDT.P"},
+    "DOGE (도지코인)": {"upbit": "KRW-DOGE", "binance": "BINANCE:DOGEUSDT.P"},
+    "ADA (에이다)": {"upbit": "KRW-ADA", "binance": "BINANCE:ADAUSDT.P"},
+    "AVAX (아발란체)": {"upbit": "KRW-AVAX", "binance": "BINANCE:AVAXUSDT.P"},
 }
-symbol_binance_tv = binance_symbols[symbol_upbit]
+
+st.sidebar.header("🔍 코인 검색 및 선택")
+
+# 돋보기 검색이 가능한 선택 상자 (Selectbox with search)
+selected_coin_name = st.sidebar.selectbox(
+    "코인을 검색하거나 선택하세요 (예: ZEC, XRP, BTC)",
+    options=list(COIN_MAP.keys()),
+    index=0
+)
+
+symbol_upbit = COIN_MAP[selected_coin_name]["upbit"]
+symbol_binance_tv = COIN_MAP[selected_coin_name]["binance"]
+binance_ticker = symbol_binance_tv.split(":")[1].replace(".P", "")
 
 # 세션 상태 초기화
 if "tf_choice" not in st.session_state:
@@ -47,19 +58,16 @@ tv_intervals = {
 }
 
 # ---------------------------------------------------------
-# 상단 타이틀
+# 상단 타이틀 & 롱/숏 대시보드 해더
 # ---------------------------------------------------------
-st.title(f"📈 {symbol_upbit} vs {symbol_binance_tv.split(':')[1]}")
+st.title(f"🚀 {selected_coin_name}")
+st.caption(f"업비트: `{symbol_upbit}` ｜ 바이낸스 선물: `{binance_ticker}`")
 
 # ---------------------------------------------------------
-# 1. 상단: 업비트 차트 섹션
+# 시간 봉 선택 바 (차트 바로 상단)
 # ---------------------------------------------------------
-st.subheader(f"🇰🇷 업비트 ({symbol_upbit})")
-
-# [시간 봉 선택 바]
 quick_tfs = ["1분", "3분", "5분", "15분", "1시간"]
 
-# 콜백 함수들
 def on_btn_click(selected):
     st.session_state["tf_choice"] = selected
 
@@ -80,7 +88,6 @@ for idx, q_tf in enumerate(quick_tfs):
         type="primary" if is_selected else "secondary"
     )
 
-# 드롭다운 선택
 c_more.selectbox(
     "시간 선택",
     all_tf_list,
@@ -93,7 +100,11 @@ c_more.selectbox(
 current_tf = st.session_state["tf_choice"]
 target_minutes = timeframe_to_minutes[current_tf]
 
-# 업비트 데이터 수집 함수
+# ---------------------------------------------------------
+# 2. 상단: 업비트 차트
+# ---------------------------------------------------------
+st.subheader(f"🇰🇷 업비트 ({symbol_upbit}) - {current_tf}")
+
 @st.cache_data(ttl=10)
 def get_upbit_klines(symbol, minutes):
     upbit_native_minutes = [1, 3, 5, 10, 15, 30, 45, 60, 240]
@@ -177,12 +188,14 @@ def build_chart_config(candles, ma_dict):
 upbit_candles, upbit_mas = get_upbit_klines(symbol_upbit, target_minutes)
 
 if upbit_candles:
-    renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas)], key=f"upbit_chart_{current_tf}")
+    renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas)], key=f"upbit_{symbol_upbit}_{current_tf}")
+else:
+    st.warning("업비트 차트 데이터를 불러오는 중입니다...")
 
 # ---------------------------------------------------------
-# 2. 하단: 바이낸스 실시간 차트
+# 3. 하단: 바이낸스 선물 실시간 차트 (연동)
 # ---------------------------------------------------------
-st.subheader(f"🌐 바이낸스 선물 실시간 ({symbol_binance_tv.split(':')[1]}) - {current_tf}")
+st.subheader(f"🌐 바이낸스 선물 실시간 ({binance_ticker}) - {current_tf}")
 
 tv_interval = tv_intervals.get(target_minutes, "15")
 
