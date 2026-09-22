@@ -6,7 +6,7 @@ import streamlit.components.v1 as components
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # ---------------------------------------------------------
-# 0. 기본 설정 및 다크 테마
+# 0. 기본 설정 및 모바일 최적화 레이아웃 CSS
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Goya Signal Precision Dashboard",
@@ -19,6 +19,7 @@ st.markdown(
     """
     <style>
     .stApp { background-color: #111318; color: #FFFFFF; }
+    .block-container { padding-top: 1rem; padding-bottom: 1rem; padding-left: 1rem; padding-right: 1rem; max-width: 100%; }
     </style>
 """,
     unsafe_allow_html=True,
@@ -27,7 +28,7 @@ st.markdown(
 st.title("🛡️ GOYA SMART SIGNAL & BINANCE INTEGRATION")
 
 # ---------------------------------------------------------
-# 1. 사이드바 설정 (코인 선택 및 타임프레임)
+# 1. 사이드바 설정 (코인 검색/선택 및 타임프레임)
 # ---------------------------------------------------------
 st.sidebar.header("🎛️ 차트 제어 패널")
 
@@ -59,7 +60,7 @@ tv_interval = timeframe_map[tf_selected]["tv"]
 
 
 # ---------------------------------------------------------
-# 2. 데이터 수집 및 KST 시간 축 왜곡 원인 차단
+# 2. 데이터 수집 및 KST 시간 왜곡 원천 차단 가공
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -71,25 +72,31 @@ def get_chart_data(market, tf):
         if not isinstance(res, list) or len(res) == 0:
             return None, None, None, None
 
-        res.reverse()  # 과거 -> 현재 순서로 정렬
+        res.reverse()  # 과거 -> 현재 순서 정렬
         df = pd.DataFrame(res)
 
-        # [핵심] KST 문자열을 완벽하게 인식시켜 1970년 오류 및 시간 밀림 현상 방지
+        # [시간 오류 해결 핵심] 업비트 KST 시간을 초 단위 타임스탬프(Epoch)로 정확히 매핑
+        # 라이브러리가 UTC로 오인하여 생기는 1970년 오류를 막기 위해 KST 오프셋(+9시간)을 반영합니다.
         dt_kst = pd.to_datetime(df["candle_date_time_kst"])
         df["time"] = (
-            dt_kst.dt.tz_localize("Asia/Seoul")
-            .dt.tz_convert("UTC")
-            .astype("int64")
-            // 10**9
+            dt_kst.astype("int64") // 10**9
+        )  # 업비트 타임스탬프 활용 또는 순수 초 변환
+        # 더 확실한 방법: timestamp 사용
+        df["time"] = dt_kst.apply(
+            lambda x: int(
+                x.replace(
+                    tzinfo=datetime.timezone(datetime.timedelta(hours=9))
+                ).timestamp()
+            )
         )
-        df["dt_str"] = dt_kst.dt.strftime("%m-%d %H:%M")
+        df["dt_str"] = dt_kst.dt.strftime("%Y-%m-%d %H:%M")
 
         df["open"] = df["opening_price"]
         df["high"] = df["high_price"]
         df["low"] = df["low_price"]
         df["close"] = df["trade_price"]
 
-        # 이동평균선 계산 (고야라인 20선, 스마트라인 50선)
+        # 이동평균선 계산
         df["goya_line"] = df["close"].rolling(20).mean()
         df["smart_line"] = df["close"].rolling(50).mean()
 
@@ -173,22 +180,34 @@ else:
     candles, mas, markers, latest_info = data_package
 
     # ---------------------------------------------------------
-    # 3. 차트 좌측 상단 스타일의 실시간 OHLCV 오버레이 구현
+    # 3. 고야 차트 스타일: 차트 직상단 좌측 투명 오버레이 박스 구현
     # ---------------------------------------------------------
     st.subheader(f"📈 {selected_coin} 업비트 스마트 캔들 차트")
 
-    # 고야 차트처럼 마우스 오버 또는 최신 바의 상세 정보를 보여주는 좌측 상단 박스 스타일 적용
     st.markdown(
         f"""
-        <div style="background-color: #1e222d; padding: 10px 15px; border-radius: 6px; font-family: monospace; font-size: 14px; margin-bottom: 10px; border: 1px solid #2a2e39;">
-            <span style="color: #ffeb3b; font-weight: bold;">{selected_coin}</span> &nbsp;|&nbsp; 
-            <span style="color: #9aca3c;">🕒 {latest_info['candle_date_time_kst']}</span><br>
-            <span style="color: #d1d4dc;">O: <b>{latest_info['open']:,}</b></span> &nbsp;
-            <span style="color: #26a69a;">H: <b>{latest_info['high']:,}</b></span> &nbsp;
-            <span style="color: #ef5350;">L: <b>{latest_info['low']:,}</b></span> &nbsp;
-            <span style="color: #2196f3;">C: <b>{latest_info['close']:,}</b></span> &nbsp;
-            <span style="color: #e91e63;">Goya: <b>{latest_info['goya_line']:,.1f}</b></span> &nbsp;
-            <span style="color: #ffeb3b;">Smart: <b>{latest_info['smart_line']:,.1f}</b></span>
+        <div style="
+            position: relative;
+            z-index: 10;
+            background: rgba(19, 23, 34, 0.75);
+            border: 1px solid #2a2e39;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #d1d4dc;
+            margin-bottom: -45px;
+            width: fit-content;
+            pointer-events: none;
+        ">
+            <span style="color: #ffeb3b; font-weight: bold;">{selected_coin}</span> &nbsp;
+            <span style="color: #9aca3c;">{latest_info['dt_str']}</span><br>
+            O: <span style="color:#fff;">{latest_info['open']:,}</span> &nbsp;
+            H: <span style="color:#26a69a;">{latest_info['high']:,}</span> &nbsp;
+            L: <span style="color:#ef5350;">{latest_info['low']:,}</span> &nbsp;
+            C: <span style="color:#2196f3;">{latest_info['close']:,}</span> &nbsp;
+            <span style="color: #e91e63;">Goya: {latest_info['goya_line']:,.1f}</span> &nbsp;
+            <span style="color: #ffeb3b;">Smart: {latest_info['smart_line']:,.1f}</span>
         </div>
     """,
         unsafe_allow_html=True,
