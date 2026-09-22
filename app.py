@@ -113,7 +113,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 코인 선택 셀렉트박스 (즉시 연동 처리)
 col_c1, col_tf1, col_tf2, col_tf3, col_tf4 = st.columns([1.6, 1, 1, 1, 1])
 
 with col_c1:
@@ -255,7 +254,6 @@ def get_chart_data(market, tf):
         df["close"] = df["trade_price"]
         df["change_pct"] = df["close"].pct_change() * 100
 
-        # 고야/스마트 라인 지표 계산 (기간 설정 최적화)
         df["goya_line"] = df["close"].rolling(20).mean()
         df["smart_line"] = df["close"].rolling(50).mean()
 
@@ -293,15 +291,18 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
-            # 오차를 줄인 고야 스타일 시그널 조건 (라인 돌파 및 정배열/역배열 필터링)
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
                 and pd.notnull(row["smart_line"])
             ):
-                goya, smart = row["goya_line"], row["smart_line']
-                # 롱 조건: 종가가 두 라인보다 위 에 있고, 고야 라인이 스마트 라인보다 위이거나 골든크로스 발생 직후
-                if c_p > goya and c_p > smart and goya >= smart and last_sig != "LONG":
+                goya, smart = row["goya_line"], row["smart_line"]
+                if (
+                    c_p > goya
+                    and c_p > smart
+                    and goya >= smart
+                    and last_sig != "LONG"
+                ):
                     markers.append(
                         {
                             "time": t_sec,
@@ -312,8 +313,12 @@ def get_chart_data(market, tf):
                         }
                     )
                     last_sig = "LONG"
-                # 숏 조건: 종가가 두 라인보다 아래에 있고, 고야 라인이 스마트 라인보다 아래이거나 데드크로스 발생 직후
-                elif c_p < goya and c_p < smart and goya <= smart and last_sig != "SHORT":
+                elif (
+                    c_p < goya
+                    and c_p < smart
+                    and goya <= smart
+                    and last_sig != "SHORT"
+                ):
                     markers.append(
                         {
                             "time": t_sec,
@@ -350,7 +355,6 @@ else:
     pct_color = "#26a69a" if pct_val >= 0 else "#ef5350"
     pct_str = f"+{pct_val:.2f}%" if pct_val >= 0 else f"{pct_val:.2f}%"
 
-    # 실시간 가격 및 변동률 상단 바
     st.markdown(
         f"""
         <div class="goya-subbar">
@@ -361,9 +365,6 @@ else:
         unsafe_allow_html=True,
     )
 
-    # ---------------------------------------------------------
-    # 5. [순서 수정 완료] 차트 바로 위에 위치하는 정보 오버레이 박스
-    # ---------------------------------------------------------
     st.markdown(
         f"""
         <div style="
@@ -387,9 +388,6 @@ else:
         unsafe_allow_html=True,
     )
 
-    # ---------------------------------------------------------
-    # 6. 메인 트레이딩뷰 차트 렌더링
-    # ---------------------------------------------------------
     chart_options = {
         "height": 480,
         "layout": {"background": {"color": "#121212"}, "textColor": "#d1d4dc"},
@@ -444,9 +442,6 @@ else:
         key=f"goya_chart_{market_code}_{tf_path}",
     )
 
-# ---------------------------------------------------------
-# 7. 하단 네비게이션바
-# ---------------------------------------------------------
 st.markdown(
     """
     <div class="goya-nav">
