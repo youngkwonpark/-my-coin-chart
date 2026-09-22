@@ -1,525 +1,384 @@
-import datetime
-import pandas as pd
-import requests
-import streamlit as st
-from streamlit_lightweight_charts import renderLightweightCharts
+import React, { useEffect, useRef, useState } from 'react';
+import { createChart } from 'lightweight-charts';
+import { TrendingUp, ShieldCheck, Search, ChevronDown, Loader2 } from 'lucide-react';
 
-# ---------------------------------------------------------
-# 0. 스타일 설정 (노안 맞춤형 초대형 폰트 및 가독성 최적화)
-# ---------------------------------------------------------
-st.set_page_config(
-    page_title="Goya Chart App", page_icon="📈", layout="centered"
-)
+const TIMEFRAMES = [
+  { label: '1분', value: '1m' },
+  { label: '3분', value: '3m' },
+  { label: '5분', value: '5m' },
+  { label: '15분', value: '15m' },
+  { label: '30분', value: '30m' },
+  { label: '1시간', value: '1h' },
+  { label: '4시간', value: '4h' },
+  { label: '1일', value: '1d' },
+  { label: '1주일', value: '1w' },
+];
 
-st.markdown(
-    """
-    <style>
-    .stApp { background-color: #121212; color: #FFFFFF; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
-    .block-container { padding: 0px !important; max-width: 100% !important; }
-    
-    /* 상단 헤더 */
-    .goya-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        background-color: #1e1e1e;
-        padding: 16px 20px;
-        border-bottom: 1px solid #333333;
-    }
-    .goya-title {
-        font-size: 26px;
-        font-weight: bold;
-        color: #ffffff;
-        text-align: center;
-        flex-grow: 1;
-    }
-    .goya-back {
-        font-size: 28px;
-        color: #ffffff;
-        cursor: pointer;
-        text-decoration: none;
-    }
-    .goya-subbar {
-        background-color: #181818;
-        padding: 16px 20px;
-        border-bottom: 1px solid #2c2c2c;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    div[data-baseweb="select"] > div {
-        font-size: 20px !important;
-        font-weight: bold !important;
-        background-color: #262626 !important;
-        color: #ffffff !important;
-        border: 1px solid #444444 !important;
-    }
-    .stButton > button {
-        font-size: 15px !important;
-        font-weight: bold !important;
-        padding: 8px 0px !important;
-        background-color: #262626 !important;
-        color: #ffffff !important;
-        border: 1px solid #444444 !important;
-    }
-    .goya-nav {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        width: 100%;
-        background-color: #1a1a1a;
-        border-top: 1px solid #2c2c2c;
-        display: flex;
-        justify-content: space-around;
-        padding: 12px 0;
-        z-index: 999;
-    }
-    .goya-nav-item {
-        text-align: center;
-        color: #888888;
-        font-size: 16px;
-    }
-    .goya-nav-item.active {
-        color: #ff9800;
-        font-weight: bold;
-    }
-    </style>
-""",
-    unsafe_allow_html=True,
-)
+const calculateEMA = (data, period) => {
+  const k = 2 / (period + 1);
+  let emaArray = [];
+  let prevEMA = data[0];
+  
+  data.forEach((val, index) => {
+    if (index === 0) {
+      emaArray.push(val);
+      prevEMA = val;
+    } else {
+      const currentEMA = (val - prevEMA) * k + prevEMA;
+      emaArray.push(currentEMA);
+      prevEMA = currentEMA;
+    }
+  });
+  return emaArray;
+};
 
-# ---------------------------------------------------------
-# 1. 세션 상태 초기화
-# ---------------------------------------------------------
-if "selected_coin" not in st.session_state:
-    st.session_state.selected_coin = "XRP/USDT"
-if "show_candle" not in st.session_state:
-    st.session_state.show_candle = True
-if "show_goya" not in st.session_state:
-    st.session_state.show_goya = True
-if "show_smart" not in st.session_state:
-    st.session_state.show_smart = True
-if "show_more_tf" not in st.session_state:
-    st.session_state.show_more_tf = False
-if "tf_choice" not in st.session_state:
-    st.session_state.tf_choice = "1시간"
+export default function App() {
+  const chartContainerRef = useRef(null);
+  const chartRef = useRef(null);
+  const candleSeriesRef = useRef(null);
+  const goyaLineSeriesRef = useRef(null);
+  const upperLineSeriesRef = useRef(null);
+  const smartLineSeriesRef = useRef(null);
 
-SYMBOL_MAP = {
-    "XRP/USDT": "KRW-XRP",
-    "SOL/USDT": "KRW-SOL",
-    "BTC/USDT": "KRW-BTC",
-    "ETH/USDT": "KRW-ETH",
-    "DOGE/USDT": "KRW-DOGE",
-    "ADA/USDT": "KRW-ADA",
+  const [allCoins, setAllCoins] = useState([]);
+  const [selectedCoin, setSelectedCoin] = useState('XRPUSDT');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [currentPrice, setCurrentPrice] = useState(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [selectedTimeframe, setSelectedTimeframe] = useState('1h');
+  const [activeSignals, setActiveSignals] = useState([]);
+  const [isLoadingCoins, setIsLoadingCoins] = useState(true);
+
+  useEffect(() => {
+    const fetchBinanceExchangeInfo = async () => {
+      try {
+        const res = await fetch('https://api.binance.com/api/v3/exchangeInfo');
+        const data = await res.json();
+        const usdtPairs = data.symbols
+          .filter(s => s.quoteAsset === 'USDT' && s.status === 'TRADING')
+          .map(s => ({ symbol: s.symbol, baseAsset: s.baseAsset }));
+        setAllCoins(usdtPairs);
+        setIsLoadingCoins(false);
+      } catch (err) {
+        setAllCoins([
+          { symbol: 'BTCUSDT', baseAsset: 'BTC' },
+          { symbol: 'ETHUSDT', baseAsset: 'ETH' },
+          { symbol: 'XRPUSDT', baseAsset: 'XRP' }
+        ]);
+        setIsLoadingCoins(false);
+      }
+    };
+    fetchBinanceExchangeInfo();
+  }, []);
+
+  const filteredCoins = allCoins.filter(coin => 
+    coin.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    coin.baseAsset.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: 520,
+      layout: {
+        background: { color: '#131722' },
+        textColor: '#d1d4dc',
+      },
+      grid: {
+        vertLines: { color: '#1f293d' },
+        horzLines: { color: '#1f293d' },
+      },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 12,
+        barSpacing: 10,
+        fixLeftEdge: false,
+        fixRightEdge: false,
+        lockVisibleTimeRangeOnResize: true,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
+      },
+      localization: {
+        timeFormatter: (time) => {
+          const date = new Date(time * 1000);
+          const hours = String(date.getUTCHours()).padStart(2, '0');
+          const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+          const month = date.getUTCMonth() + 1;
+          const day = date.getUTCDate();
+          return `${month}월 ${day}일 ${hours}:${minutes}`;
+        },
+      },
+    });
+
+    const upperLineSeries = chart.addLineSeries({
+      color: 'rgba(38, 166, 154, 0.7)',
+      lineWidth: 1,
+      title: 'Upper Line',
+    });
+
+    // Smart Line 색상을 레퍼런스와 동일한 순정 yellow로 변경
+    const smartLineSeries = chart.addLineSeries({
+      color: 'yellow',
+      lineWidth: 1.5,
+      title: 'Smart Line',
+    });
+
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderVisible: false,
+      wickUpColor: '#26a69a',
+      wickDownColor: '#ef5350',
+    });
+
+    const goyaLineSeries = chart.addLineSeries({
+      color: '#ec4899', 
+      lineWidth: 2,
+      title: 'Goya Line',
+    });
+
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+    goyaLineSeriesRef.current = goyaLineSeries;
+    upperLineSeriesRef.current = upperLineSeries;
+    smartLineSeriesRef.current = smartLineSeries;
+
+    const handleResize = () => {
+      if (chartContainerRef.current) {
+        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+      }
+    };
+    window.addEventListener('resize', handleResize);
+
+    const fetchChartData = async () => {
+      try {
+        const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${selectedCoin}&interval=${selectedTimeframe}&limit=250`);
+        const data = await res.json();
+        
+        if (!Array.isArray(data)) return;
+
+        const opens = data.map(item => parseFloat(item[1]));
+        const highs = data.map(item => parseFloat(item[2]));
+        const lows = data.map(item => parseFloat(item[3]));
+        const closes = data.map(item => parseFloat(item[4]));
+
+        const goyaValues = calculateEMA(closes, 7);
+        const smartValues = calculateEMA(closes, 25);
+
+        const formattedCandles = [];
+        const goyaLineData = [];
+        const smartLineData = [];
+        const upperLineData = [];
+        const markers = [];
+
+        let lastSignalType = null;
+        let lastSignalIndex = -99;
+
+        data.forEach((item, index) => {
+          const time = (item[0] / 1000) + (9 * 60 * 60);
+          const open = opens[index];
+          const high = highs[index];
+          const low = lows[index];
+          const close = closes[index];
+
+          formattedCandles.push({ time, open, high, low, close });
+
+          const goyaVal = goyaValues[index];
+          const smartVal = smartValues[index];
+
+          goyaLineData.push({ time, value: goyaVal });
+
+          const sliceHigh = highs.slice(Math.max(0, index - 15), index + 1);
+          const sliceLow = lows.slice(Math.max(0, index - 15), index + 1);
+          upperLineData.push({ time, value: Math.max(...sliceHigh) * 0.999 });
+          smartLineData.push({ time, value: Math.min(...sliceLow) * 1.001 });
+
+          if (index > 10 && (index - lastSignalIndex >= 2)) {
+            const isGreen = close > open;
+            const isRed = close < open;
+
+            const isLL = isGreen && (close > goyaVal) && (goyaVal >= smartVal);
+            const isSS = isRed && (close < goyaVal) && (goyaVal <= smartVal);
+
+            if (isLL && lastSignalType !== 'LL') {
+              markers.push({
+                time,
+                position: 'belowBar',
+                color: '#22c55e',
+                shape: 'arrowUp',
+                text: 'LL',
+              });
+              lastSignalType = 'LL';
+              lastSignalIndex = index;
+            } else if (isSS && lastSignalType !== 'SS') {
+              markers.push({
+                time,
+                position: 'aboveBar',
+                color: '#ef4444',
+                shape: 'arrowDown',
+                text: 'SS',
+              });
+              lastSignalType = 'SS';
+              lastSignalIndex = index;
+            }
+          }
+        });
+
+        candleSeries.setData(formattedCandles);
+        goyaLineSeries.setData(goyaLineData);
+        upperLineSeries.setData(upperLineData);
+        smartLineSeries.setData(smartLineData);
+        
+        candleSeries.setMarkers(markers);
+
+        if (formattedCandles.length > 0) {
+          setCurrentPrice(formattedCandles[formattedCandles.length - 1].close);
+        }
+        setIsConnected(true);
+        setActiveSignals([
+          { type: lastSignalType === 'LL' ? 'LL (Long)' : 'SS (Short)', time: '실시간 적용됨', desc: `${selectedCoin} 고야선 트랩 필터 적용 완료` }
+        ]);
+      } catch (err) {
+        setIsConnected(false);
+      }
+    };
+
+    fetchChartData();
+    const intervalId = setInterval(fetchChartData, 5000);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearInterval(intervalId);
+      chart.remove();
+    };
+  }, [selectedCoin, selectedTimeframe]);
+
+  return (
+    <div className="min-h-screen bg-[#0b0e11] text-white p-4 font-sans">
+      <header className="bg-[#131722] p-4 rounded-xl border border-gray-800 shadow-xl mb-4 flex flex-col xl:flex-row justify-between items-center gap-4 relative z-20">
+        <div className="flex items-center space-x-4 w-full xl:w-auto justify-between xl:justify-start">
+          <div className="relative">
+            <button 
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="flex items-center gap-2 bg-[#1e222d] hover:bg-gray-800 text-white px-3.5 py-2 rounded-lg border border-gray-700 font-bold transition-all shadow"
+            >
+              <span className="text-pink-500 font-mono text-base">⚡</span>
+              <span>{selectedCoin}</span>
+              <ChevronDown className="w-4 h-4 text-gray-400" />
+            </button>
+
+            {isDropdownOpen && (
+              <div className="absolute top-12 left-0 w-72 bg-[#191c26] border border-gray-700 rounded-xl shadow-2xl p-2 z-50">
+                <div className="relative mb-2 px-1 pt-1">
+                  <Search className="absolute left-4 top-3.5 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="코인 검색..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full bg-[#131722] text-white text-xs pl-9 pr-3 py-2 rounded-lg border border-gray-700 focus:outline-none uppercase"
+                    autoFocus
+                  />
+                </div>
+                <div className="max-h-72 overflow-y-auto space-y-1 pr-1">
+                  {isLoadingCoins ? (
+                    <div className="flex items-center justify-center py-6 text-xs text-gray-400 gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-blue-500" /> 로딩 중...
+                    </div>
+                  ) : (
+                    filteredCoins.map((coin) => (
+                      <div
+                        key={coin.symbol}
+                        onClick={() => {
+                          setSelectedCoin(coin.symbol);
+                          setIsDropdownOpen(false);
+                          setSearchTerm('');
+                        }}
+                        className={`w-full text-left px-3 py-2.5 text-xs rounded-lg transition-colors flex justify-between items-center cursor-pointer ${
+                          selectedCoin === coin.symbol ? 'bg-blue-600 text-white font-bold' : 'text-gray-300 hover:bg-[#232837]'
+                        }`}
+                      >
+                        <span className="font-mono">{coin.symbol}</span>
+                        <span className="text-[10px] text-gray-400 uppercase">{coin.baseAsset}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h1 className="text-sm md:text-base font-bold text-gray-100 flex items-center gap-2">
+              고야 스마트 프리미엄 차트 <span className="text-xs text-pink-500 font-mono">(Pro Signal v3.3)</span>
+            </h1>
+          </div>
+        </div>
+
+        <div className="flex overflow-x-auto w-full xl:w-auto max-w-full gap-1 bg-[#1e222d] p-1.5 rounded-lg border border-gray-700/60">
+          {TIMEFRAMES.map((tf) => (
+            <button
+              key={tf.value}
+              onClick={() => setSelectedTimeframe(tf.value)}
+              className={`px-3 py-1.5 text-xs rounded-md transition-all font-semibold whitespace-nowrap ${
+                selectedTimeframe === tf.value
+                  ? 'bg-red-600 text-white shadow-md ring-2 ring-red-500/40'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+              }`}
+            >
+              {tf.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between w-full xl:w-auto xl:justify-end space-x-3">
+          <div className="text-right">
+            <div className="text-lg md:text-xl font-bold font-mono text-white tracking-tight">
+              {currentPrice ? `$${currentPrice.toLocaleString()}` : '불러오는 중...'}
+            </div>
+            <div className="flex items-center justify-end text-[11px] text-emerald-400 space-x-1">
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span>{isConnected ? '거짓 신호 필터 작동 중' : '연결 끊김'}</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="bg-[#131722] p-4 rounded-xl border border-gray-800 shadow-2xl mb-4 relative z-10">
+        <div ref={chartContainerRef} className="w-full rounded-lg overflow-hidden" />
+      </div>
+
+      <div className="bg-[#131722] p-4 rounded-xl border border-gray-800 shadow-lg relative z-10">
+        <h3 className="text-xs md:text-sm font-bold text-gray-200 mb-3 flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-emerald-400" /> 프리미엄 스마트 시그널 모니터링 ({selectedCoin})
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {activeSignals.map((sig, idx) => (
+            <div key={idx} className="flex justify-between items-center bg-[#1e222d] p-3 rounded-lg border border-gray-700/60">
+              <div className="flex items-center gap-3">
+                <span className={`px-2.5 py-1 text-xs font-bold rounded ${sig.type.includes('LL') ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                  {sig.type}
+                </span>
+                <span className="text-xs md:text-sm text-gray-200 font-medium">{sig.desc}</span>
+              </div>
+              <span className="text-xs text-gray-400 font-mono">{sig.time}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
-
-# 업비트 공식 지원 타임프레임 전체 매핑 (일봉 포함)
-UPBIT_TF_CONFIG = {
-    "1분": "minutes/1",
-    "3분": "minutes/3",
-    "5분": "minutes/5",
-    "10분": "minutes/10",
-    "15분": "minutes/15",
-    "30분": "minutes/30",
-    "1시간": "minutes/60",
-    "4시간": "minutes/240",
-    "일봉": "days/1",
-}
-
-# ---------------------------------------------------------
-# 2. 상단 헤더 및 좌우 코인 선택 & 검색 바
-# ---------------------------------------------------------
-st.markdown(
-    f"""
-    <div class="goya-header">
-        <a class="goya-back" href="#">＜</a>
-        <div class="goya-title">{st.session_state.selected_coin}</div>
-        <div style="width: 25px;"></div>
-    </div>
-""",
-    unsafe_allow_html=True,
-)
-
-with st.container():
-    st.markdown(
-        '<div style="background-color: #181818; padding: 14px 16px; border-bottom: 2px solid #333;">',
-        unsafe_allow_html=True,
-    )
-
-    col_select, col_search = st.columns([1, 2.5])
-
-    with col_select:
-        available_coins = list(SYMBOL_MAP.keys())
-        selected_coin = st.selectbox(
-            "코인 선택",
-            available_coins,
-            index=available_coins.index(st.session_state.selected_coin),
-            key="coin_selectbox_widget",
-            label_visibility="collapsed",
-        )
-        if selected_coin != st.session_state.selected_coin:
-            st.session_state.selected_coin = selected_coin
-            st.rerun()
-
-    with col_search:
-        coin_search_input = st.text_input(
-            "🔍 코인명 직접 검색 (예: XRP)",
-            placeholder="🔍 돋보기 코인 검색 (예: XRP, BTC)",
-            label_visibility="collapsed",
-        )
-        if coin_search_input:
-            matched = [
-                c
-                for c in available_coins
-                if coin_search_input.upper() in c.upper()
-            ]
-            if matched and matched[0] != st.session_state.selected_coin:
-                st.session_state.selected_coin = matched[0]
-                st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-market_code = SYMBOL_MAP[st.session_state.selected_coin]
-
-
-# ---------------------------------------------------------
-# 3. 바이낸스 스타일 타임프레임 바 + More 토글
-# ---------------------------------------------------------
-st.markdown(
-    '<div style="background-color: #141414; padding: 10px 12px; border-bottom: 1px solid #333;">',
-    unsafe_allow_html=True,
-)
-
-main_tfs = ["1분", "5분", "15분", "30분", "1시간"]
-tf_cols = st.columns(len(main_tfs) + 1)
-
-for idx, tf_name in enumerate(main_tfs):
-    with tf_cols[idx]:
-        is_selected = st.session_state.tf_choice == tf_name
-        if st.button(
-            tf_name,
-            use_container_width=True,
-            type="primary" if is_selected else "secondary",
-            key=f"main_tf_{tf_name}",
-        ):
-            st.session_state.tf_choice = tf_name
-            st.rerun()
-
-with tf_cols[-1]:
-    more_label = "More ▲" if st.session_state.show_more_tf else "More ▼"
-    if st.button(
-        more_label, use_container_width=True, key="tf_more_toggle"
-    ):
-        st.session_state.show_more_tf = not st.session_state.show_more_tf
-        st.rerun()
-
-if st.session_state.show_more_tf:
-    st.markdown(
-        "<div style='margin-top: 10px; padding-top: 10px; border-top: 1px dashed #444;'>",
-        unsafe_allow_html=True,
-    )
-    all_tf_keys = list(UPBIT_TF_CONFIG.keys())
-    for i in range(0, len(all_tf_keys), 4):
-        row_keys = all_tf_keys[i : i + 4]
-        cols = st.columns(len(row_keys))
-        for idx, tf_name in enumerate(row_keys):
-            with cols[idx]:
-                is_selected = st.session_state.tf_choice == tf_name
-                if st.button(
-                    tf_name,
-                    use_container_width=True,
-                    type="primary" if is_selected else "secondary",
-                    key=f"more_tf_{tf_name}",
-                ):
-                    st.session_state.tf_choice = tf_name
-                    st.session_state.show_more_tf = False
-                    st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown("</div>", unsafe_allow_html=True)
-
-tf_path = UPBIT_TF_CONFIG.get(st.session_state.tf_choice, "minutes/60")
-
-
-# ---------------------------------------------------------
-# 4. 지표 설정 체크박스 항시 노출
-# ---------------------------------------------------------
-st.markdown(
-    '<div style="background-color: #181818; padding: 12px 16px; border-bottom: 2px solid #333;">',
-    unsafe_allow_html=True,
-)
-mc1, mc2, mc3 = st.columns(3)
-with mc1:
-    st.session_state.show_candle = st.checkbox(
-        "캔들", value=st.session_state.show_candle
-    )
-with mc2:
-    st.session_state.show_goya = st.checkbox(
-        "GOYA", value=st.session_state.show_goya
-    )
-with mc3:
-    st.session_state.show_smart = st.checkbox(
-        "Smart", value=st.session_state.show_smart
-    )
-st.markdown("</div>", unsafe_allow_html=True)
-
-
-# ---------------------------------------------------------
-# 5. 데이터 수집 및 일봉/분봉 공통 시간 정밀 동기화 로직
-# ---------------------------------------------------------
-@st.cache_data(ttl=5)
-def get_chart_data(market, tf):
-    url = f"https://api.upbit.com/v1/candles/{tf}?market={market}&count=200"
-    headers = {"accept": "application/json"}
-    try:
-        res = requests.get(url, headers=headers, timeout=5).json()
-        if not isinstance(res, list) or len(res) == 0:
-            return None, None, None, None
-
-        res.reverse()
-        df = pd.DataFrame(res)
-
-        # 일봉과 분봉의 필드명 차이를 안전하게 흡수
-        if "candle_date_time_kst" in df.columns:
-            dt_kst = pd.to_datetime(df["candle_date_time_kst"])
-        elif "candle_date_time_utc" in df.columns:
-            dt_kst = pd.to_datetime(df["candle_date_time_utc"]) + pd.Timedelta(
-                hours=9
-            )
-        else:
-            dt_kst = pd.to_datetime(df.iloc[:, 0])
-
-        # UTC 기준 타임스탬프(초)로 정확히 변환하여 트레이딩뷰 시간 밀림 방지
-        df["time"] = dt_kst.apply(
-            lambda x: int(
-                x.tz_localize("Asia/Seoul")
-                .tz_convert("UTC")
-                .timestamp()
-            )
-            if x.tzinfo is None
-            else int(x.tz_convert("UTC").timestamp())
-        )
-        df["dt_str"] = dt_kst.dt.strftime("%Y-%m-%d %H:%M")
-
-        df["open"] = df["opening_price"]
-        df["high"] = df["high_price"]
-        df["low"] = df["low_price"]
-        df["close"] = df["trade_price"]
-        df["change_pct"] = df["close"].pct_change() * 100
-
-        df["goya_line"] = df["close"].rolling(20).mean()
-        df["smart_line"] = df["close"].rolling(50).mean()
-
-        candles = []
-        goya_data, smart_data = [], []
-        markers = []
-        last_sig = None
-
-        for i in range(len(df)):
-            row = df.iloc[i]
-            t_sec = int(row["time"])
-            c_p, o_p, h_p, l_p = (
-                float(row["close"]),
-                float(row["open"]),
-                float(row["high"]),
-                float(row["low"]),
-            )
-
-            candles.append(
-                {
-                    "time": t_sec,
-                    "open": o_p,
-                    "high": h_p,
-                    "low": l_p,
-                    "close": c_p,
-                }
-            )
-
-            if pd.notnull(row["goya_line"]):
-                goya_data.append(
-                    {"time": t_sec, "value": float(row["goya_line"])}
-                )
-            if pd.notnull(row["smart_line"]):
-                smart_data.append(
-                    {"time": t_sec, "value": float(row["smart_line"])}
-                )
-
-            if (
-                i >= 50
-                and pd.notnull(row["goya_line"])
-                and pd.notnull(row["smart_line"])
-            ):
-                goya, smart = row["goya_line"], row["smart_line"]
-                if (
-                    c_p > goya
-                    and c_p > smart
-                    and goya >= smart
-                    and last_sig != "LONG"
-                ):
-                    markers.append(
-                        {
-                            "time": t_sec,
-                            "position": "belowBar",
-                            "color": "#00E676",
-                            "shape": "arrowUp",
-                            "text": "LONG",
-                        }
-                    )
-                    last_sig = "LONG"
-                elif (
-                    c_p < goya
-                    and c_p < smart
-                    and goya <= smart
-                    and last_sig != "SHORT"
-                ):
-                    markers.append(
-                        {
-                            "time": t_sec,
-                            "position": "aboveBar",
-                            "color": "#FF5252",
-                            "shape": "arrowDown",
-                            "text": "SHORT",
-                        }
-                    )
-                    last_sig = "SHORT"
-
-        return (
-            candles,
-            {"goya": goya_data, "smart": smart_data},
-            markers,
-            df,
-        )
-    except Exception:
-        return None, None, None, None
-
-
-data_package = get_chart_data(market_code, tf_path)
-
-if data_package[0] is None:
-    st.error("⚠️ 데이터를 불러오는 중입니다. 잠시 후 새로고침해 주세요.")
-else:
-    candles, mas, markers, df_full = data_package
-    latest_info = df_full.iloc[-1]
-
-    pct_val = (
-        latest_info["change_pct"]
-        if pd.notnull(latest_info["change_pct"])
-        else 0.0
-    )
-    pct_color = "#26a69a" if pct_val >= 0 else "#ef5350"
-    pct_str = f"+{pct_val:.2f}%" if pct_val >= 0 else f"{pct_val:.2f}%"
-
-    # 상단 가격 정보 박스
-    st.markdown(
-        f"""
-        <div class="goya-subbar">
-            <span style="font-size: 30px; font-weight: bold; color: #ffffff;">{latest_info['close']:,.1f}</span>
-            <span style="font-size: 22px; font-weight: bold; color: {pct_color};">{pct_str}</span>
-        </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # 차트 바로 위 정보 박스
-    st.markdown(
-        f"""
-        <div style="
-            background: #141414;
-            border-bottom: 1px solid #2c2c2c;
-            padding: 14px 20px;
-            font-size: 18px;
-            color: #d1d4dc;
-            line-height: 1.7;
-        ">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                <span style="color: #ff9800; font-weight: bold; font-size: 22px;">{st.session_state.selected_coin} ({st.session_state.tf_choice})</span>
-                <span style="color: #8bc34a; font-weight: bold; font-size: 18px;">{latest_info['dt_str']}</span>
-            </div>
-            시가 <span style="color:#fff; font-weight: bold; font-size: 19px;">{latest_info['open']:,.1f}</span> &nbsp;|&nbsp; 
-            고가 <span style="color:#26a69a; font-weight: bold; font-size: 19px;">{latest_info['high']:,.1f}</span><br>
-            저가 <span style="color:#ef5350; font-weight: bold; font-size: 19px;">{latest_info['low']:,.1f}</span> &nbsp;|&nbsp; 
-            종가 <span style="color:#2196f3; font-weight: bold; font-size: 19px;">{latest_info['close']:,.1f}</span><br>
-            <span style="color: #e91e63; font-weight: bold; font-size: 20px;">GOYA: {latest_info['goya_line']:,.1f}</span> &nbsp;&nbsp;
-            <span style="color: #ffeb3b; font-weight: bold; font-size: 20px;">Smart: {latest_info['smart_line']:,.1f}</span>
-        </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # ---------------------------------------------------------
-    # 6. 트레이딩뷰 차트 렌더링
-    # ---------------------------------------------------------
-    chart_options = {
-        "height": 580,
-        "layout": {
-            "background": {"color": "#121212"},
-            "textColor": "#ffffff",
-            "fontSize": 16,
-        },
-        "grid": {
-            "vertLines": {"color": "#1f1f1f"},
-            "horzLines": {"color": "#1f1f1f"},
-        },
-        "timeScale": {
-            "timeVisible": True,
-            "secondsVisible": False,
-            "rightOffset": 12,
-        },
-    }
-
-    series = []
-    if st.session_state.show_candle:
-        series.append(
-            {
-                "type": "Candlestick",
-                "data": candles,
-                "markers": markers,
-                "options": {"upColor": "#26a69a", "downColor": "#ef5350"},
-            }
-        )
-    if st.session_state.show_goya:
-        series.append(
-            {
-                "type": "Line",
-                "data": mas["goya"],
-                "options": {
-                    "color": "#e91e63",
-                    "lineWidth": 3,
-                    "title": "GOYA LINE",
-                },
-            }
-        )
-    if st.session_state.show_smart:
-        series.append(
-            {
-                "type": "Line",
-                "data": mas["smart"],
-                "options": {
-                    "color": "#ffeb3b",
-                    "lineWidth": 3,
-                    "title": "Smart Line",
-                },
-            }
-        )
-
-    renderLightweightCharts(
-        [{"chart": chart_options, "series": series}],
-        key=f"goya_chart_{market_code}_{tf_path}",
-    )
-
-# ---------------------------------------------------------
-# 7. 하단 네비게이션바
-# ---------------------------------------------------------
-st.markdown(
-    """
-    <div style="height: 60px;"></div>
-    <div class="goya-nav">
-        <div class="goya-nav-item">🎛️ 마켓</div>
-        <div class="goya-nav-item">💡 브리핑</div>
-        <div class="goya-nav-item active">🏠 홈</div>
-        <div class="goya-nav-item">🔔 알람</div>
-        <div class="goya-nav-item">⚙️ 설정</div>
-    </div>
-""",
-    unsafe_allow_html=True,
-)
