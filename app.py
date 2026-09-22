@@ -47,18 +47,18 @@ st.markdown(
         justify-content: space-between;
         align-items: center;
     }
-    /* 스트림릿 기본 selectbox 및 버튼 글씨 명인 가독성 개선 */
+    /* 스트림릿 기본 selectbox 및 입력창 가독성 개선 */
     div[data-baseweb="select"] > div {
-        font-size: 22px !important;
+        font-size: 20px !important;
         font-weight: bold !important;
         background-color: #262626 !important;
         color: #ffffff !important;
         border: 1px solid #444444 !important;
     }
     .stButton > button {
-        font-size: 18px !important;
+        font-size: 16px !important;
         font-weight: bold !important;
-        padding: 12px 0px !important;
+        padding: 8px 0px !important;
         background-color: #262626 !important;
         color: #ffffff !important;
         border: 1px solid #444444 !important;
@@ -103,8 +103,6 @@ if "show_smart" not in st.session_state:
     st.session_state.show_smart = True
 if "show_menu" not in st.session_state:
     st.session_state.show_menu = False
-if "show_tf_box" not in st.session_state:
-    st.session_state.show_tf_box = False
 if "tf_choice" not in st.session_state:
     st.session_state.tf_choice = "1시간"
 
@@ -113,28 +111,27 @@ SYMBOL_MAP = {
     "SOL/USDT": "KRW-SOL",
     "BTC/USDT": "KRW-BTC",
     "ETH/USDT": "KRW-ETH",
+    "DOGE/USDT": "KRW-DOGE",
+    "ADA/USDT": "KRW-ADA",
 }
 
-# 타임프레임 매핑 사전 (라벨 -> 업비트 API 파라미터 & 분 단위 값)
+# 타임프레임 매핑 사전
 TF_CONFIG = {
-    "1분": {"path": "minutes/1", "minutes": 1},
-    "3분": {"path": "minutes/3", "minutes": 3},
-    "5분": {"path": "minutes/5", "minutes": 5},
-    "10분": {"path": "minutes/10", "minutes": 10},
-    "15분": {"path": "minutes/15", "minutes": 15},
-    "20분": {"path": "minutes/20", "minutes": 20},
-    "30분": {"path": "minutes/30", "minutes": 30},
-    "45분": {"path": "minutes/45", "minutes": 45},
-    "1시간": {"path": "minutes/60", "minutes": 60},
-    "2시간": {"path": "minutes/120", "minutes": 120},
-    "4시간": {"path": "minutes/240", "minutes": 240},
-    "6시간": {"path": "minutes/360", "minutes": 360},
-    "8시간": {"path": "minutes/480", "minutes": 480},
-    "12시간": {"path": "minutes/720", "minutes": 720},
+    "1분": {"path": "minutes/1"},
+    "3분": {"path": "minutes/3"},
+    "5분": {"path": "minutes/5"},
+    "15분": {"path": "minutes/15"},
+    "30분": {"path": "minutes/30"},
+    "1시간": {"path": "minutes/60"},
+    "2시간": {"path": "minutes/120"},
+    "4시간": {"path": "minutes/240"},
+    "6시간": {"path": "minutes/360"},
+    "8시간": {"path": "minutes/480"},
+    "12시간": {"path": "minutes/720"},
 }
 
 # ---------------------------------------------------------
-# 2. 상단 헤더 및 코인 선택 컨테이너
+# 2. 상단 헤더 및 코인 검색(돋보기/직접 입력) 바
 # ---------------------------------------------------------
 st.markdown(
     f"""
@@ -147,62 +144,44 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 상단 컨트롤 패널 박스 디자인 적용
 with st.container():
     st.markdown(
         '<div style="background-color: #181818; padding: 14px 16px; border-bottom: 2px solid #333;">',
         unsafe_allow_html=True,
     )
 
-    col_c1, col_tf_toggle = st.columns([3, 1])
-    with col_c1:
+    # 돋보기 검색 및 코인 선택 영역
+    col_search, col_select = st.columns([1, 2])
+    with col_search:
+        coin_search_input = st.text_input(
+            "🔍 코인 검색",
+            placeholder="코인명 검색 (예: XRP)",
+            label_visibility="collapsed",
+        )
+
+    with col_select:
+        available_coins = list(SYMBOL_MAP.keys())
+        if coin_search_input:
+            filtered_coins = [
+                c
+                for c in available_coins
+                if coin_search_input.upper() in c.upper()
+            ]
+            if filtered_coins:
+                available_coins = filtered_coins
+
         selected_coin = st.selectbox(
             "코인 선택",
-            list(SYMBOL_MAP.keys()),
-            index=list(SYMBOL_MAP.keys()).index(
-                st.session_state.selected_coin
-            ),
+            available_coins,
+            index=0
+            if st.session_state.selected_coin not in available_coins
+            else available_coins.index(st.session_state.selected_coin),
             key="coin_selectbox_widget",
             label_visibility="collapsed",
         )
         if selected_coin != st.session_state.selected_coin:
             st.session_state.selected_coin = selected_coin
             st.rerun()
-
-    with col_tf_toggle:
-        toggle_label = (
-            f"봉: {st.session_state.tf_choice} ▲"
-            if st.session_state.show_tf_box
-            else f"봉: {st.session_state.tf_choice} ▼"
-        )
-        if st.button(toggle_label, use_container_width=True):
-            st.session_state.show_tf_box = not st.session_state.show_tf_box
-            st.rerun()
-
-    # 타임프레임 선택 박스가 열렸을 때 상세 버튼들 표시 (1분~12시간)
-    if st.session_state.show_tf_box:
-        st.markdown(
-            "<div style='margin-top: 10px; padding-top: 10px; border-top: 1px dashed #444;'>",
-            unsafe_allow_html=True,
-        )
-        tf_keys = list(TF_CONFIG.keys())
-        # 4개씩 줄바꿈 배치
-        for i in range(0, len(tf_keys), 4):
-            row_keys = tf_keys[i : i + 4]
-            cols = st.columns(len(row_keys))
-            for idx, tf_name in enumerate(row_keys):
-                with cols[idx]:
-                    is_selected = st.session_state.tf_choice == tf_name
-                    if st.button(
-                        tf_name,
-                        use_container_width=True,
-                        type="primary" if is_selected else "secondary",
-                        key=f"tf_grid_{tf_name}",
-                    ):
-                        st.session_state.tf_choice = tf_name
-                        st.session_state.show_tf_box = False
-                        st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -211,7 +190,31 @@ tf_path = TF_CONFIG[st.session_state.tf_choice]["path"]
 
 
 # ---------------------------------------------------------
-# 3. 스마트 차트 지표 설정 메뉴
+# 3. 타임프레임 선택 버튼 바 (하단 행에 펼쳐서 배치)
+# ---------------------------------------------------------
+st.markdown(
+    '<div style="background-color: #141414; padding: 10px 10px; border-bottom: 1px solid #333;">',
+    unsafe_allow_html=True,
+)
+tf_keys = list(TF_CONFIG.keys())
+tf_cols = st.columns(len(tf_keys))
+
+for idx, tf_name in enumerate(tf_keys):
+    with tf_cols[idx]:
+        is_selected = st.session_state.tf_choice == tf_name
+        if st.button(
+            tf_name,
+            use_container_width=True,
+            type="primary" if is_selected else "secondary",
+            key=f"tf_bar_{tf_name}",
+        ):
+            st.session_state.tf_choice = tf_name
+            st.rerun()
+st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------
+# 4. 스마트 차트 지표 설정 메뉴
 # ---------------------------------------------------------
 col_menu_btn, _ = st.columns([2, 3])
 with col_menu_btn:
@@ -246,7 +249,7 @@ if st.session_state.show_menu:
 
 
 # ---------------------------------------------------------
-# 4. 데이터 수집 및 시간 정밀 보정 로직
+# 5. 데이터 수집 및 롱/숏 신호 계산 로직
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -313,6 +316,7 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
+            # 롱/숏 신호 마커 생성 로직 복구
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
@@ -331,7 +335,7 @@ def get_chart_data(market, tf):
                             "position": "belowBar",
                             "color": "#00E676",
                             "shape": "arrowUp",
-                            "text": "",
+                            "text": "LONG",
                         }
                     )
                     last_sig = "LONG"
@@ -347,7 +351,7 @@ def get_chart_data(market, tf):
                             "position": "aboveBar",
                             "color": "#FF5252",
                             "shape": "arrowDown",
-                            "text": "",
+                            "text": "SHORT",
                         }
                     )
                     last_sig = "SHORT"
@@ -415,7 +419,7 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 5. 트레이딩뷰 차트 렌더링
+    # 6. 트레이딩뷰 차트 렌더링
     # ---------------------------------------------------------
     chart_options = {
         "height": 580,
@@ -476,7 +480,7 @@ else:
     )
 
 # ---------------------------------------------------------
-# 6. 하단 네비게이션바
+# 7. 하단 네비게이션바
 # ---------------------------------------------------------
 st.markdown(
     """
