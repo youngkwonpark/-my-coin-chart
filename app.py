@@ -1,6 +1,7 @@
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # 웹 페이지 설정
@@ -16,14 +17,14 @@ symbol_upbit = st.sidebar.selectbox(
     index=0,
 )
 
-# 바이낸스 심볼 매핑
+# 바이낸스 선물 심볼 매핑
 binance_symbols = {
-    "KRW-BTC": "BTCUSDT",
-    "KRW-ETH": "ETHUSDT",
-    "KRW-SOL": "SOLUSDT",
-    "KRW-XRP": "XRPUSDT"
+    "KRW-BTC": "BINANCE:BTCUSDT.P",
+    "KRW-ETH": "BINANCE:ETHUSDT.P",
+    "KRW-SOL": "BINANCE:SOLUSDT.P",
+    "KRW-XRP": "BINANCE:XRPUSDT.P"
 }
-symbol_binance = binance_symbols[symbol_upbit]
+symbol_binance_tv = binance_symbols[symbol_upbit]
 
 # 5분, 15분, 30분, 60분, 120분 봉 설정
 interval_minutes = st.sidebar.selectbox(
@@ -32,18 +33,19 @@ interval_minutes = st.sidebar.selectbox(
     index=1,
 )
 
-binance_intervals = {
-    5: "5m",
-    15: "15m",
-    30: "30m",
-    60: "1h",
-    120: "2h"
+# 트레이딩뷰 인터벌 매핑
+tv_intervals = {
+    5: "5",
+    15: "15",
+    30: "30",
+    60: "60",
+    120: "120"
 }
 
-st.title(f"📈 {symbol_upbit} vs {symbol_binance} ({interval_minutes}분봉)")
+st.title(f"📈 {symbol_upbit} vs {symbol_binance_tv.split(':')[1]} ({interval_minutes}분봉)")
 
 # ---------------------------------------------------------
-# 1. 업비트 데이터 수집
+# 1. 상단: 업비트 차트 (Lightweight Charts)
 # ---------------------------------------------------------
 @st.cache_data(ttl=10)
 def get_upbit_klines(symbol, interval_minutes):
@@ -81,70 +83,6 @@ def get_upbit_klines(symbol, interval_minutes):
 
     return candles, {"ma5": ma5, "ma15": ma15, "ma30": ma30, "ma60": ma60, "ma120": ma120}
 
-# ---------------------------------------------------------
-# 2. 바이낸스 프록시 우회 수집
-# ---------------------------------------------------------
-@st.cache_data(ttl=10)
-def get_binance_proxy_klines(symbol, interval_minutes):
-    interval_str = binance_intervals.get(interval_minutes, "15m")
-    
-    # 바이낸스 원본 URL
-    target_url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval_str}&limit=200"
-    
-    # CORS/IP 차단 회피 프록시 URL
-    proxy_url = f"https://api.allorigins.win/get?url={requests.utils.quote(target_url)}"
-
-    res = None
-    try:
-        r = requests.get(proxy_url, timeout=7).json()
-        if "contents" in r:
-            import json
-            res = json.loads(r["contents"])
-    except Exception:
-        pass
-
-    # 프록시 실패 시 대비 2차 백업 (Bybit 프록시)
-    if not res or not isinstance(res, list):
-        try:
-            bybit_url = f"https://api.bybit.com/v5/market/kline?category=spot&symbol={symbol}&interval={interval_minutes}&limit=200"
-            b_proxy = f"https://api.allorigins.win/get?url={requests.utils.quote(bybit_url)}"
-            r = requests.get(b_proxy, timeout=7).json()
-            if "contents" in r:
-                import json
-                b_data = json.loads(r["contents"])
-                if b_data.get("retCode") == 0:
-                    raw_list = b_data["result"]["list"]
-                    raw_list.reverse()
-                    res = [[int(x[0]), x[1], x[2], x[3], x[4]] for x in raw_list]
-        except Exception:
-            pass
-
-    if not res or not isinstance(res, list):
-        return [], {}
-
-    candles = []
-    ma5, ma15, ma30, ma60, ma120 = [], [], [], [], []
-    closes = []
-
-    for item in res:
-        time_sec = int(item[0] / 1000)
-        open_p = float(item[1])
-        high_p = float(item[2])
-        low_p = float(item[3])
-        close_p = float(item[4])
-
-        closes.append(close_p)
-        candles.append({"time": time_sec, "open": open_p, "high": high_p, "low": low_p, "close": close_p})
-
-        if len(closes) >= 5: ma5.append({"time": time_sec, "value": sum(closes[-5:]) / 5})
-        if len(closes) >= 15: ma15.append({"time": time_sec, "value": sum(closes[-15:]) / 15})
-        if len(closes) >= 30: ma30.append({"time": time_sec, "value": sum(closes[-30:]) / 30})
-        if len(closes) >= 60: ma60.append({"time": time_sec, "value": sum(closes[-60:]) / 60})
-        if len(closes) >= 120: ma120.append({"time": time_sec, "value": sum(closes[-120:]) / 120})
-
-    return candles, {"ma5": ma5, "ma15": ma15, "ma30": ma30, "ma60": ma60, "ma120": ma120}
-
-# 공통 차트 설정
 def build_chart_config(candles, ma_dict):
     chart_options = {
         "height": 500,
@@ -165,17 +103,42 @@ def build_chart_config(candles, ma_dict):
 
     return {"chart": chart_options, "series": series}
 
-# 데이터 호출
 upbit_candles, upbit_mas = get_upbit_klines(symbol_upbit, interval_minutes)
-binance_candles, binance_mas = get_binance_proxy_klines(symbol_binance, interval_minutes)
 
-# 화면 출력
 st.subheader(f"🇰🇷 업비트 ({symbol_upbit})")
 if upbit_candles:
     renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas)], key="upbit_chart")
 
-st.subheader(f"🌐 바이낸스 실시간 ({symbol_binance})")
-if binance_candles:
-    renderLightweightCharts([build_chart_config(binance_candles, binance_mas)], key="binance_chart")
-else:
-    st.error("데이터 로딩 중입니다. 3초 후 새로고침해 주세요.")
+# ---------------------------------------------------------
+# 2. 하단: 바이낸스 실시간 차트 (TradingView 공식 위젯)
+# ---------------------------------------------------------
+st.subheader(f"🌐 바이낸스 선물 실시간 ({symbol_binance_tv.split(':')[1]})")
+
+tv_interval = tv_intervals.get(interval_minutes, "15")
+
+tradingview_html = f"""
+<!-- TradingView Widget BEGIN -->
+<div class="tradingview-widget-container" style="height:500px;width:100%;">
+  <div id="tradingview_binance" style="height:500px;width:100%;"></div>
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+  <script type="text/javascript">
+  new TradingView.widget({{
+    "autosize": true,
+    "symbol": "{symbol_binance_tv}",
+    "interval": "{tv_interval}",
+    "timezone": "Asia/Seoul",
+    "theme": "dark",
+    "style": "1",
+    "locale": "kr",
+    "toolbar_bg": "#f1f3f6",
+    "enable_publishing": false,
+    "hide_side_toolbar": false,
+    "allow_symbol_change": false,
+    "container_id": "tradingview_binance"
+  }});
+  </script>
+</div>
+<!-- TradingView Widget END -->
+"""
+
+components.html(tradingview_html, height=505)
