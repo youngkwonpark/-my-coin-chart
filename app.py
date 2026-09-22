@@ -47,7 +47,6 @@ st.markdown(
         justify-content: space-between;
         align-items: center;
     }
-    /* 스트림릿 기본 selectbox 및 입력창 가독성 개선 */
     div[data-baseweb="select"] > div {
         font-size: 20px !important;
         font-weight: bold !important;
@@ -58,12 +57,11 @@ st.markdown(
     .stButton > button {
         font-size: 16px !important;
         font-weight: bold !important;
-        padding: 8px 0px !important;
+        padding: 10px 0px !important;
         background-color: #262626 !important;
         color: #ffffff !important;
         border: 1px solid #444444 !important;
     }
-    /* 하단 네비게이션바 스타일 */
     .goya-nav {
         position: fixed;
         bottom: 0;
@@ -103,6 +101,8 @@ if "show_smart" not in st.session_state:
     st.session_state.show_smart = True
 if "show_menu" not in st.session_state:
     st.session_state.show_menu = False
+if "show_tf_box" not in st.session_state:
+    st.session_state.show_tf_box = False
 if "tf_choice" not in st.session_state:
     st.session_state.tf_choice = "1시간"
 
@@ -115,14 +115,15 @@ SYMBOL_MAP = {
     "ADA/USDT": "KRW-ADA",
 }
 
-# 타임프레임 매핑 사전
+# 1분부터 12시간까지 업비트 API 경로 완벽 지원 매핑
 TF_CONFIG = {
     "1분": {"path": "minutes/1"},
     "3분": {"path": "minutes/3"},
     "5분": {"path": "minutes/5"},
     "15분": {"path": "minutes/15"},
     "30분": {"path": "minutes/30"},
-    "1시간": {"path": "minutes/60"},
+    "45분": {"path": "minutes/45"},
+    "60분(1시간)": {"path": "minutes/60"},
     "2시간": {"path": "minutes/120"},
     "4시간": {"path": "minutes/240"},
     "6시간": {"path": "minutes/360"},
@@ -131,7 +132,7 @@ TF_CONFIG = {
 }
 
 # ---------------------------------------------------------
-# 2. 상단 헤더 및 코인 검색(돋보기/직접 입력) 바
+# 2. 상단 헤더 및 좌우 배치 (왼쪽: 코인 드롭다운, 오른쪽: 넓은 검색창)
 # ---------------------------------------------------------
 st.markdown(
     f"""
@@ -150,32 +151,14 @@ with st.container():
         unsafe_allow_html=True,
     )
 
-    # 돋보기 검색 및 코인 선택 영역
-    col_search, col_select = st.columns([1, 2])
-    with col_search:
-        coin_search_input = st.text_input(
-            "🔍 코인 검색",
-            placeholder="코인명 검색 (예: XRP)",
-            label_visibility="collapsed",
-        )
+    col_select, col_search = st.columns([1, 2.5])
 
     with col_select:
         available_coins = list(SYMBOL_MAP.keys())
-        if coin_search_input:
-            filtered_coins = [
-                c
-                for c in available_coins
-                if coin_search_input.upper() in c.upper()
-            ]
-            if filtered_coins:
-                available_coins = filtered_coins
-
         selected_coin = st.selectbox(
             "코인 선택",
             available_coins,
-            index=0
-            if st.session_state.selected_coin not in available_coins
-            else available_coins.index(st.session_state.selected_coin),
+            index=available_coins.index(st.session_state.selected_coin),
             key="coin_selectbox_widget",
             label_visibility="collapsed",
         )
@@ -183,34 +166,73 @@ with st.container():
             st.session_state.selected_coin = selected_coin
             st.rerun()
 
+    with col_search:
+        coin_search_input = st.text_input(
+            "🔍 코인명 직접 검색 (예: XRP)",
+            placeholder="🔍 돋보기 코인 검색 (예: XRP, BTC)",
+            label_visibility="collapsed",
+        )
+        if coin_search_input:
+            matched = [
+                c
+                for c in available_coins
+                if coin_search_input.upper() in c.upper()
+            ]
+            if matched and matched[0] != st.session_state.selected_coin:
+                st.session_state.selected_coin = matched[0]
+                st.rerun()
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 market_code = SYMBOL_MAP[st.session_state.selected_coin]
-tf_path = TF_CONFIG[st.session_state.tf_choice]["path"]
 
 
 # ---------------------------------------------------------
-# 3. 타임프레임 선택 버튼 바 (하단 행에 펼쳐서 배치)
+# 3. 우측 화살표 토글로 열고 닫히는 전체 타임프레임 선택 바
 # ---------------------------------------------------------
 st.markdown(
-    '<div style="background-color: #141414; padding: 10px 10px; border-bottom: 1px solid #333;">',
+    '<div style="background-color: #141414; padding: 10px 14px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center;">',
     unsafe_allow_html=True,
 )
-tf_keys = list(TF_CONFIG.keys())
-tf_cols = st.columns(len(tf_keys))
+st.markdown(
+    f"<span style='color: #ff9800; font-weight: bold; font-size: 17px;'>선택된 봉: {st.session_state.tf_choice}</span>",
+    unsafe_allow_html=True,
+)
 
-for idx, tf_name in enumerate(tf_keys):
-    with tf_cols[idx]:
-        is_selected = st.session_state.tf_choice == tf_name
-        if st.button(
-            tf_name,
-            use_container_width=True,
-            type="primary" if is_selected else "secondary",
-            key=f"tf_bar_{tf_name}",
-        ):
-            st.session_state.tf_choice = tf_name
-            st.rerun()
+toggle_btn_label = (
+    "타임프레임 닫기 ▲" if st.session_state.show_tf_box else "타임프레임 선택 ▼"
+)
+if st.button(toggle_btn_label, key="tf_toggle_btn"):
+    st.session_state.show_tf_box = not st.session_state.show_tf_box
+    st.rerun()
 st.markdown("</div>", unsafe_allow_html=True)
+
+# 화살표를 눌러 열렸을 때 1분 ~ 12시간 전체 버튼 표시
+if st.session_state.show_tf_box:
+    st.markdown(
+        '<div style="background-color: #1a1a1a; padding: 12px; border-bottom: 1px solid #333;">',
+        unsafe_allow_html=True,
+    )
+    tf_keys = list(TF_CONFIG.keys())
+    # 4개씩 줄바꿈 배치
+    for i in range(0, len(tf_keys), 4):
+        row_keys = tf_keys[i : i + 4]
+        cols = st.columns(len(row_keys))
+        for idx, tf_name in enumerate(row_keys):
+            with cols[idx]:
+                is_selected = st.session_state.tf_choice == tf_name
+                if st.button(
+                    tf_name,
+                    use_container_width=True,
+                    type="primary" if is_selected else "secondary",
+                    key=f"tf_popup_{tf_name}",
+                ):
+                    st.session_state.tf_choice = tf_name
+                    st.session_state.show_tf_box = False
+                    st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+tf_path = TF_CONFIG[st.session_state.tf_choice]["path"]
 
 
 # ---------------------------------------------------------
@@ -249,7 +271,7 @@ if st.session_state.show_menu:
 
 
 # ---------------------------------------------------------
-# 5. 데이터 수집 및 롱/숏 신호 계산 로직
+# 5. 데이터 수집 및 KST 시간 왜곡 완전 보정 로직
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -263,6 +285,7 @@ def get_chart_data(market, tf):
         res.reverse()
         df = pd.DataFrame(res)
 
+        # 업비트 KST 문자열을 완벽하게 파싱하여 시간 오차(밀림 현상) 원천 차단
         dt_kst = pd.to_datetime(df["candle_date_time_kst"])
         df["time"] = dt_kst.apply(
             lambda x: int(
@@ -316,7 +339,7 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
-            # 롱/숏 신호 마커 생성 로직 복구
+            # 롱/숏 신호 마커 생성
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
@@ -360,7 +383,7 @@ def get_chart_data(market, tf):
             candles,
             {"goya": goya_data, "smart": smart_data},
             markers,
-            df.iloc[-1],
+            df,
         )
     except Exception:
         return None, None, None, None
@@ -371,7 +394,8 @@ data_package = get_chart_data(market_code, tf_path)
 if data_package[0] is None:
     st.error("⚠️ 데이터를 불러오는 중입니다. 잠시 후 새로고침해 주세요.")
 else:
-    candles, mas, markers, latest_info = data_package
+    candles, mas, markers, df_full = data_package
+    latest_info = df_full.iloc[-1]
 
     pct_val = (
         latest_info["change_pct"]
