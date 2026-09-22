@@ -9,8 +9,8 @@ st.set_page_config(
     page_title="Crypto Chart Dashboard", page_icon="📈", layout="wide"
 )
 
-# 사이드바 설정
-st.sidebar.header("⚙️ 차트 설정")
+# 사이드바 설정 (코인 선택)
+st.sidebar.header("⚙️ 코인 선택")
 symbol_upbit = st.sidebar.selectbox(
     "업비트 코인 선택",
     ["KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-XRP"],
@@ -26,71 +26,57 @@ binance_symbols = {
 }
 symbol_binance_tv = binance_symbols[symbol_upbit]
 
-# 시간 봉 옵션 목록 (화면 표시용)
-timeframe_options = [
+# 세션 상태에 선택된 시간 봉 저장 (기본값: 15분)
+if "selected_tf" not in st.session_state:
+    st.session_state.selected_tf = "15분"
+
+# 시간 봉 옵션
+tf_list = [
     "1분", "3분", "5분", "10분", "15분", "30분", "45분",
     "1시간", "2시간", "4시간", "6시간", "8시간", "10시간", "12시간"
 ]
 
-selected_timeframe = st.sidebar.selectbox(
-    "시간 봉 선택",
-    timeframe_options,
-    index=4,  # 기본값: 15분
-)
-
-# 시간 봉 분 단위 매핑
 timeframe_to_minutes = {
-    "1분": 1,
-    "3분": 3,
-    "5분": 5,
-    "10분": 10,
-    "15분": 15,
-    "30분": 30,
-    "45분": 45,
-    "1시간": 60,
-    "2시간": 120,
-    "4시간": 240,
-    "6시간": 360,
-    "8시간": 480,
-    "10시간": 600,
-    "12시간": 720,
+    "1분": 1, "3분": 3, "5분": 5, "10분": 10, "15분": 15, "30분": 30, "45분": 45,
+    "1시간": 60, "2시간": 120, "4시간": 240, "6시간": 360, "8시간": 480, "10시간": 600, "12시간": 720
 }
 
-target_minutes = timeframe_to_minutes[selected_timeframe]
-
-# 트레이딩뷰 위젯 인터벌 매핑
 tv_intervals = {
-    1: "1",
-    3: "3",
-    5: "5",
-    10: "10",
-    15: "15",
-    30: "30",
-    45: "45",
-    60: "60",
-    120: "120",
-    240: "240",
-    360: "360",
-    480: "480",
-    600: "720",  # 바이낸스/TV 지원 대체값 (12h)
-    720: "720"
+    1: "1", 3: "3", 5: "5", 10: "10", 15: "15", 30: "30", 45: "45",
+    60: "60", 120: "120", 240: "240", 360: "360", 480: "480", 600: "720", 720: "720"
 }
 
-st.title(f"📈 {symbol_upbit} vs {symbol_binance_tv.split(':')[1]} ({selected_timeframe}봉)")
+st.title(f"📈 {symbol_upbit} vs {symbol_binance_tv.split(':')[1]}")
 
 # ---------------------------------------------------------
-# 1. 상단: 업비트 차트 데이터 처리
+# 상단 시간 봉 클릭 버튼 레이아웃 (바이낸스 스타일)
+# ---------------------------------------------------------
+st.write("⏱️ **시간 봉 선택**")
+cols = st.columns(len(tf_list))
+
+for i, tf in enumerate(tf_list):
+    # 현재 선택된 버튼은 강조 표시
+    button_label = f"[{tf}]" if st.session_state.selected_tf == tf else tf
+    if cols[i].button(button_label, key=f"tf_btn_{tf}", use_container_width=True):
+        st.session_state.selected_tf = tf
+        st.rerun()
+
+current_tf = st.session_state.selected_tf
+target_minutes = timeframe_to_minutes[current_tf]
+
+st.markdown(f"**현재 설정:** `<{current_tf}>` 봉 차트", unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# 1. 상단: 업비트 차트
 # ---------------------------------------------------------
 @st.cache_data(ttl=10)
 def get_upbit_klines(symbol, minutes):
-    # 업비트 원본 지원 분 단위: 1, 3, 5, 10, 15, 30, 45, 60, 240
     upbit_native_minutes = [1, 3, 5, 10, 15, 30, 45, 60, 240]
     
     if minutes in upbit_native_minutes:
         fetch_minutes = minutes
         fetch_count = 200
     else:
-        # 커스텀 시간 단위(2시간, 6시간, 8시간 등)는 60분 봉을 불러와서 병합
         fetch_minutes = 60
         fetch_count = min(200 * (minutes // 60), 200)
 
@@ -110,7 +96,6 @@ def get_upbit_klines(symbol, minutes):
     df['candle_date_time_utc'] = pd.to_datetime(df['candle_date_time_utc'])
     df.set_index('candle_date_time_utc', inplace=True)
 
-    # 커스텀 단위 병합 처리
     if minutes not in upbit_native_minutes:
         rule = f"{minutes}T"
         resampled = df.resample(rule, closed='left', label='left').agg({
@@ -166,14 +151,14 @@ def build_chart_config(candles, ma_dict):
 
 upbit_candles, upbit_mas = get_upbit_klines(symbol_upbit, target_minutes)
 
-st.subheader(f"🇰🇷 업비트 ({symbol_upbit})")
+st.subheader(f"🇰🇷 업비트 ({symbol_upbit}) - {current_tf}")
 if upbit_candles:
-    renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas)], key="upbit_chart")
+    renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas)], key=f"upbit_chart_{current_tf}")
 
 # ---------------------------------------------------------
-# 2. 하단: 바이낸스 실시간 차트 (TradingView 공식 위젯)
+# 2. 하단: 바이낸스 실시간 차트
 # ---------------------------------------------------------
-st.subheader(f"🌐 바이낸스 선물 실시간 ({symbol_binance_tv.split(':')[1]})")
+st.subheader(f"🌐 바이낸스 선물 실시간 ({symbol_binance_tv.split(':')[1]}) - {current_tf}")
 
 tv_interval = tv_intervals.get(target_minutes, "15")
 
