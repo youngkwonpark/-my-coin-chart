@@ -6,7 +6,7 @@ import streamlit.components.v1 as components
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # ---------------------------------------------------------
-# 0. 기본 설정 및 모바일 최적화 레이아웃 CSS
+# 0. 기본 설정 및 모바일 최적화 레이아웃
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Goya Signal Precision Dashboard",
@@ -25,12 +25,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("🛡️ GOYA SMART SIGNAL & BINANCE INTEGRATION")
+st.title("🚀 XRP (리플) 스마트 실시간 차트")
 
 # ---------------------------------------------------------
-# 1. 사이드바 설정 (코인 검색/선택 및 타임프레임)
+# 1. 사이드바 코인 선택
 # ---------------------------------------------------------
-st.sidebar.header("🎛️ 차트 제어 패널")
+st.sidebar.header("🎛️ 코인 검색 및 제어")
 
 SYMBOL_MAP = {
     "XRP (리플)": {"upbit": "KRW-XRP", "binance": "XRP"},
@@ -45,6 +45,35 @@ selected_coin = st.sidebar.selectbox("🪙 코인 선택", coin_list, index=0)
 market_code = SYMBOL_MAP[selected_coin]["upbit"]
 binance_ticker = SYMBOL_MAP[selected_coin]["binance"]
 
+# ---------------------------------------------------------
+# 2. 상단 타임프레임 버튼 바 구현 (1분, 3분, 5분, 15분, 1시간, 4시간)
+# ---------------------------------------------------------
+tf_col1, tf_col2, tf_col3, tf_col4, tf_col5, tf_col6 = st.columns(6)
+
+if "tf_choice" not in st.session_state:
+    st.session_state.tf_choice = "1시간"
+
+with tf_col1:
+    if st.button("1분", use_container_width=True):
+        st.session_state.tf_choice = "1분"
+with tf_col2:
+    if st.button("3분", use_container_width=True):
+        st.session_state.tf_choice = "3분"
+with tf_col3:
+    if st.button("5분", use_container_width=True):
+        st.session_state.tf_choice = "5분"
+with tf_col4:
+    if st.button("15분", use_container_width=True):
+        st.session_state.tf_choice = "15분"
+with tf_col5:
+    if st.button("1시간", use_container_width=True):
+        st.session_state.tf_choice = "1시간"
+with tf_col6:
+    if st.button("4시간", use_container_width=True):
+        st.session_state.tf_choice = "4시간"
+
+current_tf_label = st.session_state.tf_choice
+
 timeframe_map = {
     "1분": {"upbit": "minutes/1", "tv": "1"},
     "3분": {"upbit": "minutes/3", "tv": "3"},
@@ -54,13 +83,14 @@ timeframe_map = {
     "4시간": {"upbit": "minutes/240", "tv": "240"},
 }
 
-tf_selected = st.sidebar.radio("⏱️ 타임프레임 선택", list(timeframe_map.keys()), index=4)
-tf_path = timeframe_map[tf_selected]["upbit"]
-tv_interval = timeframe_map[tf_selected]["tv"]
+tf_path = timeframe_map[current_tf_label]["upbit"]
+tv_interval = timeframe_map[current_tf_label]["tv"]
+
+st.markdown(f"### 📍 업비트 ({market_code}) - {current_tf_label}")
 
 
 # ---------------------------------------------------------
-# 2. 데이터 수집 및 KST 시간 왜곡 원천 차단 가공
+# 3. 데이터 수집 및 KST 시간 변환 (오류 방지)
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -72,16 +102,11 @@ def get_chart_data(market, tf):
         if not isinstance(res, list) or len(res) == 0:
             return None, None, None, None
 
-        res.reverse()  # 과거 -> 현재 순서 정렬
+        res.reverse()
         df = pd.DataFrame(res)
 
-        # [시간 오류 해결 핵심] 업비트 KST 시간을 초 단위 타임스탬프(Epoch)로 정확히 매핑
-        # 라이브러리가 UTC로 오인하여 생기는 1970년 오류를 막기 위해 KST 오프셋(+9시간)을 반영합니다.
+        # KST 타임스탬프 완벽 고정
         dt_kst = pd.to_datetime(df["candle_date_time_kst"])
-        df["time"] = (
-            dt_kst.astype("int64") // 10**9
-        )  # 업비트 타임스탬프 활용 또는 순수 초 변환
-        # 더 확실한 방법: timestamp 사용
         df["time"] = dt_kst.apply(
             lambda x: int(
                 x.replace(
@@ -96,7 +121,10 @@ def get_chart_data(market, tf):
         df["low"] = df["low_price"]
         df["close"] = df["trade_price"]
 
-        # 이동평균선 계산
+        # 전일 종가 또는 이전 캔들 대비 변동률 계산
+        df["change_pct"] = df["close"].pct_change() * 100
+
+        # 이동평균선 (고야라인 20선, 스마트라인 50선)
         df["goya_line"] = df["close"].rolling(20).mean()
         df["smart_line"] = df["close"].rolling(50).mean()
 
@@ -179,17 +207,23 @@ if data_package[0] is None:
 else:
     candles, mas, markers, latest_info = data_package
 
-    # ---------------------------------------------------------
-    # 3. 고야 차트 스타일: 차트 직상단 좌측 투명 오버레이 박스 구현
-    # ---------------------------------------------------------
-    st.subheader(f"📈 {selected_coin} 업비트 스마트 캔들 차트")
+    pct_val = (
+        latest_info["change_pct"]
+        if pd.notnull(latest_info["change_pct"])
+        else 0.0
+    )
+    pct_color = "#26a69a" if pct_val >= 0 else "#ef5350"
+    pct_str = f"+{pct_val:.2f}%" if pct_val >= 0 else f"{pct_val:.2f}%"
 
+    # ---------------------------------------------------------
+    # 4. 고야 차트 스타일: 좌측 상단 투명 오버레이 박스 (날짜, 시간, OHLC, 변동률)[span_2](start_span)[span_2](end_span)
+    # ---------------------------------------------------------
     st.markdown(
         f"""
         <div style="
             position: relative;
             z-index: 10;
-            background: rgba(19, 23, 34, 0.75);
+            background: rgba(19, 23, 34, 0.80);
             border: 1px solid #2a2e39;
             padding: 8px 12px;
             border-radius: 4px;
@@ -206,6 +240,7 @@ else:
             H: <span style="color:#26a69a;">{latest_info['high']:,}</span> &nbsp;
             L: <span style="color:#ef5350;">{latest_info['low']:,}</span> &nbsp;
             C: <span style="color:#2196f3;">{latest_info['close']:,}</span> &nbsp;
+            <span style="color: {pct_color};">({pct_str})</span><br>
             <span style="color: #e91e63;">Goya: {latest_info['goya_line']:,.1f}</span> &nbsp;
             <span style="color: #ffeb3b;">Smart: {latest_info['smart_line']:,.1f}</span>
         </div>
@@ -260,11 +295,11 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 4. 바이낸스 실시간 연동 차트 (하단)
+    # 5. 바이낸스 선물 실시간 연동 차트 (하단)
     # ---------------------------------------------------------
     st.markdown("---")
     st.subheader(
-        f"🌐 바이낸스 실시간 연동 차트 ({binance_ticker} / USDT Perpetual)"
+        f"🌐 바이낸스 선물 실시간 연동 차트 ({binance_ticker}USDT) - {current_tf_label}"
     )
 
     binance_html = f"""
@@ -275,7 +310,7 @@ else:
       new TradingView.widget(
       {{
         "autosize": true,
-        "symbol": "BINANCE:{binance_ticker}USDT",
+        "symbol": "BINANCE:{binance_ticker}USDT.P",
         "interval": "{tv_interval}",
         "timezone": "Asia/Seoul",
         "theme": "dark",
