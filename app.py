@@ -127,7 +127,7 @@ UPBIT_TF_CONFIG = {
 }
 
 # ---------------------------------------------------------
-# 2. 상단 헤더 및 좌우 코인 선택 & 검색 바 (좌: 드롭다운, 우: 넓은 검색창)
+# 2. 상단 헤더 및 좌우 코인 선택 & 검색 바
 # ---------------------------------------------------------
 st.markdown(
     f"""
@@ -265,7 +265,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------
-# 5. 데이터 수집 및 일봉/분봉 공통 시간 보정 로직
+# 5. 데이터 수집 및 KST 시간 정밀 동기화 로직 (일봉/분봉 공통)
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -279,13 +279,15 @@ def get_chart_data(market, tf):
         res.reverse()
         df = pd.DataFrame(res)
 
-        # 일봉과 분봉의 날짜 필드명 차이를 안전하게 처리
-        time_col = (
-            "candle_date_time_kst"
-            if "candle_date_time_kst" in df.columns
-            else "candle_date_time_utc"
-        )
-        dt_kst = pd.to_datetime(df[time_col])
+        # 일봉(days)과 분봉(minutes)에 따라 날짜/시간 필드명 다르게 처리
+        if "candle_date_time_kst" in df.columns:
+            dt_kst = pd.to_datetime(df["candle_date_time_kst"])
+        elif "candle_date_time_utc" in df.columns:
+            dt_kst = pd.to_datetime(df["candle_date_time_utc"]) + pd.Timedelta(
+                hours=9
+            )
+        else:
+            dt_kst = pd.to_datetime(df.iloc[:, 0])
 
         df["time"] = dt_kst.apply(
             lambda x: int(
@@ -339,6 +341,7 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
+            # 롱/숏 신호 마커 생성
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
@@ -415,7 +418,7 @@ else:
         unsafe_allow_html=True,
     )
 
-    # 차트 바로 위 정보 박스
+    # 차트 바로 위 정보 박스 (최신 봉 정보 표시)
     st.markdown(
         f"""
         <div style="
