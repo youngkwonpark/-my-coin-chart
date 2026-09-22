@@ -5,7 +5,7 @@ import streamlit as st
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # ---------------------------------------------------------
-# 0. 노안 맞춤형 초대형 폰트 및 레이아웃 스타일 설정
+# 0. 스타일 설정 (노안 맞춤형 초대형 폰트 및 가독성 최적화)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Goya Chart App", page_icon="📈", layout="centered"
@@ -24,7 +24,7 @@ st.markdown(
         justify-content: space-between;
         background-color: #1e1e1e;
         padding: 16px 20px;
-        border-bottom: 1px solid #2c2c2c;
+        border-bottom: 1px solid #333333;
     }
     .goya-title {
         font-size: 26px;
@@ -47,17 +47,21 @@ st.markdown(
         justify-content: space-between;
         align-items: center;
     }
-    /* 스트림릿 기본 selectbox 및 버튼 글씨 크기 확대 */
+    /* 스트림릿 기본 selectbox 및 버튼 글씨 명인 가독성 개선 */
     div[data-baseweb="select"] > div {
-        font-size: 20px !important;
+        font-size: 22px !important;
         font-weight: bold !important;
-        background-color: #222 !important;
-        color: #fff !important;
+        background-color: #262626 !important;
+        color: #ffffff !important;
+        border: 1px solid #444444 !important;
     }
     .stButton > button {
         font-size: 18px !important;
         font-weight: bold !important;
-        padding: 10px 0px !important;
+        padding: 12px 0px !important;
+        background-color: #262626 !important;
+        color: #ffffff !important;
+        border: 1px solid #444444 !important;
     }
     /* 하단 네비게이션바 스타일 */
     .goya-nav {
@@ -99,6 +103,8 @@ if "show_smart" not in st.session_state:
     st.session_state.show_smart = True
 if "show_menu" not in st.session_state:
     st.session_state.show_menu = False
+if "show_tf_box" not in st.session_state:
+    st.session_state.show_tf_box = False
 if "tf_choice" not in st.session_state:
     st.session_state.tf_choice = "1시간"
 
@@ -109,8 +115,26 @@ SYMBOL_MAP = {
     "ETH/USDT": "KRW-ETH",
 }
 
+# 타임프레임 매핑 사전 (라벨 -> 업비트 API 파라미터 & 분 단위 값)
+TF_CONFIG = {
+    "1분": {"path": "minutes/1", "minutes": 1},
+    "3분": {"path": "minutes/3", "minutes": 3},
+    "5분": {"path": "minutes/5", "minutes": 5},
+    "10분": {"path": "minutes/10", "minutes": 10},
+    "15분": {"path": "minutes/15", "minutes": 15},
+    "20분": {"path": "minutes/20", "minutes": 20},
+    "30분": {"path": "minutes/30", "minutes": 30},
+    "45분": {"path": "minutes/45", "minutes": 45},
+    "1시간": {"path": "minutes/60", "minutes": 60},
+    "2시간": {"path": "minutes/120", "minutes": 120},
+    "4시간": {"path": "minutes/240", "minutes": 240},
+    "6시간": {"path": "minutes/360", "minutes": 360},
+    "8시간": {"path": "minutes/480", "minutes": 480},
+    "12시간": {"path": "minutes/720", "minutes": 720},
+}
+
 # ---------------------------------------------------------
-# 2. 상단 헤더 및 코인 선택 (글씨 대폭 확대)
+# 2. 상단 헤더 및 코인 선택 컨테이너
 # ---------------------------------------------------------
 st.markdown(
     f"""
@@ -123,60 +147,88 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-col_c1, _ = st.columns([1.5, 1])
-with col_c1:
-    selected_coin = st.selectbox(
-        "코인 선택",
-        list(SYMBOL_MAP.keys()),
-        index=list(SYMBOL_MAP.keys()).index(st.session_state.selected_coin),
-        key="coin_selectbox_widget",
-        label_visibility="collapsed",
+# 상단 컨트롤 패널 박스 디자인 적용
+with st.container():
+    st.markdown(
+        '<div style="background-color: #181818; padding: 14px 16px; border-bottom: 2px solid #333;">',
+        unsafe_allow_html=True,
     )
-    if selected_coin != st.session_state.selected_coin:
-        st.session_state.selected_coin = selected_coin
-        st.rerun()
 
-market_code = SYMBOL_MAP[st.session_state.selected_coin]
-
-# ---------------------------------------------------------
-# 3. 타임프레임 버튼 배치 (크기 확대)
-# ---------------------------------------------------------
-tf_list = ["1분", "5분", "15분", "30분", "1시간", "4시간"]
-tf_cols = st.columns(6)
-
-for idx, tf_name in enumerate(tf_list):
-    with tf_cols[idx]:
-        is_selected = st.session_state.tf_choice == tf_name
-        if st.button(
-            tf_name,
-            use_container_width=True,
-            type="primary" if is_selected else "secondary",
-            key=f"tf_btn_{tf_name}",
-        ):
-            st.session_state.tf_choice = tf_name
+    col_c1, col_tf_toggle = st.columns([3, 1])
+    with col_c1:
+        selected_coin = st.selectbox(
+            "코인 선택",
+            list(SYMBOL_MAP.keys()),
+            index=list(SYMBOL_MAP.keys()).index(
+                st.session_state.selected_coin
+            ),
+            key="coin_selectbox_widget",
+            label_visibility="collapsed",
+        )
+        if selected_coin != st.session_state.selected_coin:
+            st.session_state.selected_coin = selected_coin
             st.rerun()
 
-timeframe_map = {
-    "1분": "minutes/1",
-    "5분": "minutes/5",
-    "15분": "minutes/15",
-    "30분": "minutes/30",
-    "1시간": "minutes/60",
-    "4시간": "minutes/240",
-}
-tf_path = timeframe_map[st.session_state.tf_choice]
+    with col_tf_toggle:
+        toggle_label = (
+            f"봉: {st.session_state.tf_choice} ▲"
+            if st.session_state.show_tf_box
+            else f"봉: {st.session_state.tf_choice} ▼"
+        )
+        if st.button(toggle_label, use_container_width=True):
+            st.session_state.show_tf_box = not st.session_state.show_tf_box
+            st.rerun()
+
+    # 타임프레임 선택 박스가 열렸을 때 상세 버튼들 표시 (1분~12시간)
+    if st.session_state.show_tf_box:
+        st.markdown(
+            "<div style='margin-top: 10px; padding-top: 10px; border-top: 1px dashed #444;'>",
+            unsafe_allow_html=True,
+        )
+        tf_keys = list(TF_CONFIG.keys())
+        # 4개씩 줄바꿈 배치
+        for i in range(0, len(tf_keys), 4):
+            row_keys = tf_keys[i : i + 4]
+            cols = st.columns(len(row_keys))
+            for idx, tf_name in enumerate(row_keys):
+                with cols[idx]:
+                    is_selected = st.session_state.tf_choice == tf_name
+                    if st.button(
+                        tf_name,
+                        use_container_width=True,
+                        type="primary" if is_selected else "secondary",
+                        key=f"tf_grid_{tf_name}",
+                    ):
+                        st.session_state.tf_choice = tf_name
+                        st.session_state.show_tf_box = False
+                        st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+market_code = SYMBOL_MAP[st.session_state.selected_coin]
+tf_path = TF_CONFIG[st.session_state.tf_choice]["path"]
 
 
 # ---------------------------------------------------------
-# 4. 스마트 차트 설정 메뉴
+# 3. 스마트 차트 지표 설정 메뉴
 # ---------------------------------------------------------
 col_menu_btn, _ = st.columns([2, 3])
 with col_menu_btn:
-    if st.button("⚙️ 지표 설정 ▾", use_container_width=True):
+    menu_label = (
+        "⚙️ 지표 설정 닫기 ▲"
+        if st.session_state.show_menu
+        else "⚙️ 지표 설정 ▾"
+    )
+    if st.button(menu_label, use_container_width=True):
         st.session_state.show_menu = not st.session_state.show_menu
         st.rerun()
 
 if st.session_state.show_menu:
+    st.markdown(
+        '<div style="background-color: #1a1a1a; padding: 12px; border-bottom: 1px solid #333;">',
+        unsafe_allow_html=True,
+    )
     mc1, mc2, mc3 = st.columns(3)
     with mc1:
         st.session_state.show_candle = st.checkbox(
@@ -190,10 +242,11 @@ if st.session_state.show_menu:
         st.session_state.show_smart = st.checkbox(
             "Smart", value=st.session_state.show_smart
         )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------
-# 5. 데이터 수집 및 시간 정밀 보정 로직
+# 4. 데이터 수집 및 시간 정밀 보정 로직
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -324,7 +377,7 @@ else:
     pct_color = "#26a69a" if pct_val >= 0 else "#ef5350"
     pct_str = f"+{pct_val:.2f}%" if pct_val >= 0 else f"{pct_val:.2f}%"
 
-    # 상단 가격 정보 (글씨 크기 극대화)
+    # 상단 가격 정보 박스
     st.markdown(
         f"""
         <div class="goya-subbar">
@@ -335,7 +388,7 @@ else:
         unsafe_allow_html=True,
     )
 
-    # 차트 바로 위 정보 박스 (글씨 크기 극대화)
+    # 차트 바로 위 정보 박스
     st.markdown(
         f"""
         <div style="
@@ -362,7 +415,7 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 6. 트레이딩뷰 차트 렌더링 (차트 내부 폰트 크기 16으로 대폭 확대)
+    # 5. 트레이딩뷰 차트 렌더링
     # ---------------------------------------------------------
     chart_options = {
         "height": 580,
@@ -423,7 +476,7 @@ else:
     )
 
 # ---------------------------------------------------------
-# 7. 하단 네비게이션바
+# 6. 하단 네비게이션바
 # ---------------------------------------------------------
 st.markdown(
     """
