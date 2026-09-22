@@ -52,11 +52,11 @@ interval = timeframe_map[tf_selected]
 
 
 # ---------------------------------------------------------
-# 2. 바이낸스/안전 프록시 연동 및 캔들/시그널 가공
+# 2. API 차단 우회 및 KST 시간 오차 동기화 함수
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
-def get_perfect_chart_data(symbol, interval_str):
-    # 차단 우회용 다중 엔드포인트
+def get_synchronized_data(symbol, interval_str):
+    # 접속 차단을 우회하기 위한 다중 엔드포인트
     urls = [
         f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval_str}&limit=300",
         f"https://api1.binance.com/api/v3/klines?symbol={symbol}&interval={interval_str}&limit=300",
@@ -98,12 +98,12 @@ def get_perfect_chart_data(symbol, interval_str):
         ],
     )
 
-    # KST 시간 정렬 (초 단위 타임스탬프)
+    # [핵심] 바이낸스 UTC 시간을 한국 시간(KST, UTC+9) 초 단위로 정확히 동기화
     df["timestamp_kst_sec"] = (df["open_time"] / 1000) + (9 * 3600)
     for col in ["open", "high", "low", "close"]:
         df[col] = df[col].astype(float)
 
-    # 고야 지표(20선), 스마트 라인(50선) 계산
+    # 고야 라인(20선) 및 스마트 라인(50선) 계산
     df["goya_line"] = df["close"].rolling(20).mean()
     df["smart_line"] = df["close"].rolling(50).mean()
 
@@ -116,11 +116,11 @@ def get_perfect_chart_data(symbol, interval_str):
     for i in range(len(df)):
         row = df.iloc[i]
         t_sec = int(row["timestamp_kst_sec"])
-        # KST 표기용 날짜 문자열
-        t_kst_str = (
-            datetime.datetime.utcfromtimestamp(t_sec)
-            .strftime("%m-%d %H:%M")
-        )
+
+        # KST 기준으로 변환된 날짜/시간 문자열 (시차 오차 없이 정확히 일치)
+        dt_kst = datetime.datetime.utcfromtimestamp(t_sec)
+        t_kst_str = dt_kst.strftime("%m-%d %H:%M")
+
         c_p, o_p, h_p, l_p = (
             row["close"],
             row["open"],
@@ -139,7 +139,7 @@ def get_perfect_chart_data(symbol, interval_str):
                 {"time": t_sec, "value": float(row["smart_line"])}
             )
 
-        # 롱 / 숏 시그널 포착 로직
+        # 롱 / 숏 시그널 판정 로직
         if (
             i >= 50
             and pd.notnull(row["goya_line"])
@@ -190,17 +190,17 @@ def get_perfect_chart_data(symbol, interval_str):
     return candles, mas, markers, latest_info, signals_table
 
 
-data_package = get_perfect_chart_data(binance_symbol, interval)
+data_package = get_synchronized_data(binance_symbol, interval)
 
 if data_package[0] is None:
     st.error(
-        "⚠️ 네트워크 통신에 일시적인 지연이 있습니다. 새로고침을 눌러주세요."
+        "⚠️ 네트워크 통신에 일시적인 지연이 발생했습니다. 잠시 후 새로고침 해주세요."
     )
 else:
     candles, mas, markers, latest_info, signals_table = data_package
 
     # ---------------------------------------------------------
-    # 3. 실시간 OHLCV 상단 요약
+    # 3. 상단 실시간 OHLCV 지표 출력
     # ---------------------------------------------------------
     st.markdown("### 📌 실시간 OHLCV (한국시간 KST 기준)")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -222,7 +222,7 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 4. 트레이딩뷰 스타일 캔들 차트 (화살표 포함) 렌더링
+    # 4. 트레이딩뷰 스타일 캔들 차트 (화살표 마커 포함)
     # ---------------------------------------------------------
     st.subheader(f"📈 {selected_coin} 스마트 캔들 차트")
 
@@ -272,7 +272,7 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 5. 하단 발생한 스마트 시그널 히스토리 테이블
+    # 5. 하단 시그널 히스토리 테이블
     # ---------------------------------------------------------
     st.subheader("🔔 발생한 스마트 시그널 히스토리")
     if signals_table:
