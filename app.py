@@ -6,10 +6,13 @@ import streamlit.components.v1 as components
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # ---------------------------------------------------------
-# 0. 기본 설정 및 다크 테마
+# 0. 기본 설정 및 다크 테마 (사이드바 기본 펼침/숨김 제어 포함)
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Goya Signal Precision Dashboard", page_icon="📈", layout="wide"
+    page_title="Goya Signal Precision Dashboard",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 st.markdown(
@@ -21,38 +24,43 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("🛡️ GOYA SMART SIGNAL (KST 시간 축 고정 버전)")
+st.title("🛡️ GOYA SMART SIGNAL & BINANCE INTEGRATION")
 
 # ---------------------------------------------------------
-# 1. 사이드바 설정
+# 1. 사이드바 설정 (코인 검색/선택 및 타임프레임)
 # ---------------------------------------------------------
+st.sidebar.header("🎛️ 차트 제어 패널")
+
 SYMBOL_MAP = {
-    "XRP (리플)": "KRW-XRP",
-    "SOL (솔라나)": "KRW-SOL",
-    "BTC (비트코인)": "KRW-BTC",
-    "ETH (이더리움)": "KRW-ETH",
+    "XRP (리플)": {"upbit": "KRW-XRP", "binance": "XRP"},
+    "SOL (솔라나)": {"upbit": "KRW-SOL", "binance": "SOL"},
+    "BTC (비트코인)": {"upbit": "KRW-BTC", "binance": "BTC"},
+    "ETH (이더리움)": {"upbit": "KRW-ETH", "binance": "ETH"},
 }
 
-selected_coin = st.sidebar.selectbox(
-    "코인 선택", list(SYMBOL_MAP.keys()), index=0
-)
-market_code = SYMBOL_MAP[selected_coin]
+# 돋보기 검색 및 셀렉트박스 기능
+coin_list = list(SYMBOL_MAP.keys())
+selected_coin = st.sidebar.selectbox("🪙 코인 선택", coin_list, index=0)
+
+market_code = SYMBOL_MAP[selected_coin]["upbit"]
+binance_ticker = SYMBOL_MAP[selected_coin]["binance"]
 
 timeframe_map = {
-    "1분": "minutes/1",
-    "3분": "minutes/3",
-    "5분": "minutes/5",
-    "15분": "minutes/15",
-    "1시간": "minutes/60",
-    "4시간": "minutes/240",
+    "1분": {"upbit": "minutes/1", "tv": "1"},
+    "3분": {"upbit": "minutes/3", "tv": "3"},
+    "5분": {"upbit": "minutes/5", "tv": "5"},
+    "15분": {"upbit": "minutes/15", "tv": "15"},
+    "1시간": {"upbit": "minutes/60", "tv": "60"},
+    "4시간": {"upbit": "minutes/240", "tv": "240"},
 }
 
-tf_selected = st.sidebar.radio("타임프레임", list(timeframe_map.keys()), index=4)
-tf_path = timeframe_map[tf_selected]
+tf_selected = st.sidebar.radio("⏱️ 타임프레임 선택", list(timeframe_map.keys()), index=4)
+tf_path = timeframe_map[tf_selected]["upbit"]
+tv_interval = timeframe_map[tf_selected]["tv"]
 
 
 # ---------------------------------------------------------
-# 2. 데이터 수집 및 KST 시간 축 왜곡 방지 가공
+# 2. 데이터 수집 및 KST 시간 축 고정 가공
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -64,12 +72,10 @@ def get_chart_data(market, tf):
         if not isinstance(res, list) or len(res) == 0:
             return None, None, None, None, None
 
-        # 과거 -> 현재 순서로 정렬
-        res.reverse()
+        res.reverse()  # 과거 -> 현재 정렬
         df = pd.DataFrame(res)
 
-        # [핵심 수정] 브라우저 시간대 보정으로 인한 시간 꼬임/1970년 튀김 현상 방지:
-        # KST 문자열을 그대로 순수 타임스탬프(초)로 변환하여 차트에 다이렉트로 전달합니다.
+        # 시간 오차 및 1970년 튀김 현상 방지 (KST 절대 타임스탬프 고정)
         dt_kst = pd.to_datetime(df["candle_date_time_kst"])
         df["time"] = dt_kst.astype("int64") // 10**9
         df["dt_str"] = dt_kst.dt.strftime("%m-%d %H:%M")
@@ -79,7 +85,7 @@ def get_chart_data(market, tf):
         df["low"] = df["low_price"]
         df["close"] = df["trade_price"]
 
-        # 이동평균선 계산 (디테일한 시그널 산출을 위한 기준선)
+        # 이동평균선 계산
         df["goya_line"] = df["close"].rolling(20).mean()
         df["smart_line"] = df["close"].rolling(50).mean()
 
@@ -118,7 +124,7 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
-            # 시그널 판정 로직 (이동평균선 돌파 및 골든/데드크로스 연동)
+            # 시그널 판정 로직
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
@@ -179,7 +185,7 @@ else:
     candles, mas, markers, latest_info, signals_table = data_package
 
     # ---------------------------------------------------------
-    # 3. 상단 실시간 OHLCV 지표 출력 (고야 차트 스타일 상단 바)
+    # 3. 상단 실시간 OHLCV 지표 출력
     # ---------------------------------------------------------
     st.markdown("### 📌 실시간 OHLCV (한국시간 KST 기준)")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -201,12 +207,12 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 4. 캔들 차트 출력
+    # 4. 업비트 기반 커스텀 캔들 차트 (Goya Smart Signal)
     # ---------------------------------------------------------
-    st.subheader(f"📈 {selected_coin} 스마트 캔들 차트")
+    st.subheader(f"📈 {selected_coin} 업비트 스마트 캔들 차트")
 
     chart_options = {
-        "height": 500,
+        "height": 450,
         "layout": {"background": {"color": "#131722"}, "textColor": "#d1d4dc"},
         "grid": {
             "vertLines": {"color": "#1f2937"},
@@ -261,3 +267,35 @@ else:
         )
     else:
         st.info("현재 구간에서 발생한 시그널이 없습니다.")
+
+    # ---------------------------------------------------------
+    # 6. 바이낸스 실시간 차트 연동 (하단 배치 복구)
+    # ---------------------------------------------------------
+    st.markdown("---")
+    st.subheader(
+        f"🌐 바이낸스 실시간 연동 차트 ({binance_ticker} / USDT Perpetual)"
+    )
+
+    binance_html = f"""
+    <div class="tradingview-widget-container" style="height:500px;width:100%">
+      <div id="tradingview_binance" style="height:100%;width:100%"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+      <script type="text/javascript">
+      new TradingView.widget(
+      {{
+        "autosize": true,
+        "symbol": "BINANCE:{binance_ticker}USDT",
+        "interval": "{tv_interval}",
+        "timezone": "Asia/Seoul",
+        "theme": "dark",
+        "style": "1",
+        "locale": "kr",
+        "toolbar_bg": "#f1f3f6",
+        "enable_publishing": false,
+        "allow_symbol_change": true,
+        "container_id": "tradingview_binance"
+      }});
+      </script>
+    </div>
+    """
+    components.html(binance_html, height=520)
