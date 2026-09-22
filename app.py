@@ -16,7 +16,7 @@ symbol_upbit = st.sidebar.selectbox(
     index=0,
 )
 
-# 바이낸스 심볼 매핑 (선물 USDT)
+# 바이낸스 심볼 매핑
 binance_symbols = {
     "KRW-BTC": "BTCUSDT",
     "KRW-ETH": "ETHUSDT",
@@ -32,7 +32,6 @@ interval_minutes = st.sidebar.selectbox(
     index=1,
 )
 
-# 바이낸스 API 용 인터벌 매핑
 binance_intervals = {
     5: "5m",
     15: "15m",
@@ -44,7 +43,7 @@ binance_intervals = {
 st.title(f"📈 {symbol_upbit} vs {symbol_binance} ({interval_minutes}분봉)")
 
 # ---------------------------------------------------------
-# 1. 업비트 데이터 가져오기 및 이평선 계산
+# 1. 업비트 데이터 수집
 # ---------------------------------------------------------
 @st.cache_data(ttl=10)
 def get_upbit_klines(symbol, interval_minutes):
@@ -83,18 +82,38 @@ def get_upbit_klines(symbol, interval_minutes):
     return candles, {"ma5": ma5, "ma15": ma15, "ma30": ma30, "ma60": ma60, "ma120": ma120}
 
 # ---------------------------------------------------------
-# 2. 바이낸스 선물(Futures) 데이터 가져오기 및 이평선 계산
+# 2. 바이낸스 데이터 수집 (선물 실패 시 현물 자동 폴백)
 # ---------------------------------------------------------
 @st.cache_data(ttl=10)
 def get_binance_klines(symbol, interval_minutes):
     interval_str = binance_intervals.get(interval_minutes, "15m")
-    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={interval_str}&limit=200"
     
+    # 1차 시도: 선물 API
+    url_futures = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={interval_str}&limit=200"
+    # 2차 시도: 현물 API (클라우드 IP 차단 대비)
+    url_spot = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval_str}&limit=200"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    res = None
     try:
-        res = requests.get(url, timeout=5).json()
-        if not isinstance(res, list):
-            return [], {}
+        r = requests.get(url_futures, headers=headers, timeout=5)
+        if r.status_code == 200:
+            res = r.json()
     except Exception:
+        pass
+
+    if not res or not isinstance(res, list):
+        try:
+            r = requests.get(url_spot, headers=headers, timeout=5)
+            if r.status_code == 200:
+                res = r.json()
+        except Exception:
+            pass
+
+    if not res or not isinstance(res, list):
         return [], {}
 
     candles = []
@@ -119,8 +138,8 @@ def get_binance_klines(symbol, interval_minutes):
 
     return candles, {"ma5": ma5, "ma15": ma15, "ma30": ma30, "ma60": ma60, "ma120": ma120}
 
-# 공통 차트 옵션 생성 함수
-def build_chart_config(candles, ma_dict, title_name):
+# 공통 차트 구성 함수
+def build_chart_config(candles, ma_dict):
     chart_options = {
         "height": 500,
         "layout": {"background": {"type": "solid", "color": "#131722"}, "textColor": "#d1d4dc"},
@@ -140,14 +159,17 @@ def build_chart_config(candles, ma_dict, title_name):
 
     return {"chart": chart_options, "series": series}
 
-# 데이터 수집 및 차트 출력
+# 데이터 로드
 upbit_candles, upbit_mas = get_upbit_klines(symbol_upbit, interval_minutes)
 binance_candles, binance_mas = get_binance_klines(symbol_binance, interval_minutes)
 
+# 차트 출력
 st.subheader(f"🇰🇷 업비트 ({symbol_upbit})")
 if upbit_candles:
-    renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas, symbol_upbit)])
+    renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas)], key="upbit_chart")
 
-st.subheader(f"🌐 바이낸스 선물 ({symbol_binance})")
+st.subheader(f"🌐 바이낸스 ({symbol_binance})")
 if binance_candles:
-    renderLightweightCharts([build_chart_config(binance_candles, binance_mas, symbol_binance)])
+    renderLightweightCharts([build_chart_config(binance_candles, binance_mas)], key="binance_chart")
+else:
+    st.error("바이낸스 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
