@@ -5,7 +5,7 @@ import streamlit as st
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # ---------------------------------------------------------
-# 0. 바이낸스 스타일 및 노안 맞춤형 가독성 최적화 스타일 설정
+# 0. 스타일 설정 (노안 맞춤형 초대형 폰트 및 가독성 최적화)
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Goya Chart App", page_icon="📈", layout="centered"
@@ -183,7 +183,7 @@ market_code = SYMBOL_MAP[st.session_state.selected_coin]
 
 
 # ---------------------------------------------------------
-# 3. [바이낸스 스타일] 앞쪽 메인 봉 버튼 + 우측 More ▼ 토글 바
+# 3. 바이낸스 스타일 타임프레임 바 + More 토글
 # ---------------------------------------------------------
 st.markdown(
     '<div style="background-color: #141414; padding: 10px 12px; border-bottom: 1px solid #333;">',
@@ -242,7 +242,7 @@ tf_path = UPBIT_TF_CONFIG.get(st.session_state.tf_choice, "minutes/60")
 
 
 # ---------------------------------------------------------
-# 4. 문구 없이 3가지 지표 체크박스 항시 노출
+# 4. 지표 설정 체크박스 항시 노출
 # ---------------------------------------------------------
 st.markdown(
     '<div style="background-color: #181818; padding: 12px 16px; border-bottom: 2px solid #333;">',
@@ -265,7 +265,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------
-# 5. 데이터 수집 및 KST 시간 정밀 동기화 로직 (일봉/분봉 공통)
+# 5. 데이터 수집 및 일봉/분봉 공통 시간 정밀 동기화 로직
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -279,7 +279,7 @@ def get_chart_data(market, tf):
         res.reverse()
         df = pd.DataFrame(res)
 
-        # 일봉(days)과 분봉(minutes)에 따라 날짜/시간 필드명 다르게 처리
+        # 일봉과 분봉의 필드명 차이를 안전하게 흡수
         if "candle_date_time_kst" in df.columns:
             dt_kst = pd.to_datetime(df["candle_date_time_kst"])
         elif "candle_date_time_utc" in df.columns:
@@ -289,12 +289,15 @@ def get_chart_data(market, tf):
         else:
             dt_kst = pd.to_datetime(df.iloc[:, 0])
 
+        # UTC 기준 타임스탬프(초)로 정확히 변환하여 트레이딩뷰 시간 밀림 방지
         df["time"] = dt_kst.apply(
             lambda x: int(
-                x.replace(
-                    tzinfo=datetime.timezone(datetime.timedelta(hours=9))
-                ).timestamp()
+                x.tz_localize("Asia/Seoul")
+                .tz_convert("UTC")
+                .timestamp()
             )
+            if x.tzinfo is None
+            else int(x.tz_convert("UTC").timestamp())
         )
         df["dt_str"] = dt_kst.dt.strftime("%Y-%m-%d %H:%M")
 
@@ -341,7 +344,6 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
-            # 롱/숏 신호 마커 생성
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
@@ -418,7 +420,7 @@ else:
         unsafe_allow_html=True,
     )
 
-    # 차트 바로 위 정보 박스 (최신 봉 정보 표시)
+    # 차트 바로 위 정보 박스
     st.markdown(
         f"""
         <div style="
