@@ -10,14 +10,14 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# 0. 실시간 자동 새로고침 (3초 간격)
+# 0. 실시간 자동 새로고침 (5초 간격)
 # ---------------------------------------------------------
 st.components.v1.html(
     """
     <script>
         setTimeout(function(){
             window.parent.postMessage({type: 'streamlit:render'}, '*');
-        }, 3000);
+        }, 5000);
     </script>
     """,
     height=0,
@@ -37,7 +37,7 @@ COIN_MAP = {
 
 st.sidebar.header("🔍 코인 선택")
 selected_coin_name = st.sidebar.selectbox(
-    "코인을 검색하거나 선택하세요",
+    "코인을 선택하세요",
     options=list(COIN_MAP.keys()),
     index=0
 )
@@ -49,16 +49,14 @@ binance_ticker = symbol_binance_tv.split(":")[1].replace(".P", "")
 if "tf_choice" not in st.session_state:
     st.session_state["tf_choice"] = "1시간"
 
-all_tf_list = ["1분", "3분", "5분", "15분", "1시간", "4시간"]
 timeframe_to_minutes = {"1분": 1, "3분": 3, "5분": 5, "15분": 15, "1시간": 60, "4시간": 240}
 tv_intervals = {1: "1", 3: "3", 5: "5", 15: "15", 60: "60", 240: "240"}
 
 # ---------------------------------------------------------
-# 상단 헤더
+# 상단 헤더 & 타임프레임 선택
 # ---------------------------------------------------------
-st.title(f"📊 {selected_coin_name} 스마트 시그널 차트")
+st.title(f"📊 {selected_coin_name} 스마트 히스토리 시그널 차트")
 
-# 시간 봉 선택 버튼
 quick_tfs = ["1분", "3분", "5분", "15분", "1시간"]
 
 def on_btn_click(selected):
@@ -80,32 +78,35 @@ current_tf = st.session_state["tf_choice"]
 target_minutes = timeframe_to_minutes[current_tf]
 
 # ---------------------------------------------------------
-# 2. 업비트 데이터 연산 & 시그널 알고리즘 분석
+# 2. 과거 데이터 전체 스캔 및 롱/숏 누적 표기 알고리즘
 # ---------------------------------------------------------
 def get_upbit_data_and_signals(symbol, minutes):
-    url = f"https://api.upbit.com/v1/candles/minutes/{minutes}?market={symbol}&count=200"
+    # 과거 데이터 스캔 개수를 500개로 확대
+    url = f"https://api.upbit.com/v1/candles/minutes/{minutes}?market={symbol}&count=500"
     try:
         res = requests.get(url, headers={"accept": "application/json"}, timeout=5).json()
-        if not isinstance(res, list): return [], {}, []
+        if not isinstance(res, list) or len(res) == 0:
+            return [], {}, [], "NEUTRAL"
     except Exception:
-        return [], {}, []
+        return [], {}, [], "NEUTRAL"
 
     res.reverse()
     df = pd.DataFrame(res)
     df['candle_date_time_utc'] = pd.to_datetime(df['candle_date_time_utc'])
     df.set_index('candle_date_time_utc', inplace=True)
 
-    # 지표 연산
+    # 주요 보조지표 산출
     df['ma5'] = df['trade_price'].rolling(5).mean()
     df['ma15'] = df['trade_price'].rolling(15).mean()
-    df['goya_line'] = df['trade_price'].rolling(60).mean() # GOYA LINE (60선)
-    df['smart_line'] = df['trade_price'].rolling(120).mean() # Smart Line (120선)
+    df['goya_line'] = df['trade_price'].rolling(50).mean() # GOYA LINE
+    df['smart_line'] = df['trade_price'].rolling(120).mean() # Smart Line
     df['vol_ma20'] = df['candle_acc_trade_volume'].rolling(20).mean()
 
     candles = []
     ma5_data, ma15_data, goya_data, smart_data = [], [], [], []
     markers = []
     latest_signal = "NEUTRAL"
+    last_signal_type = None # 연속 중복 시그널 방지용
 
     for i in range(len(df)):
         row = df.iloc[i]
@@ -124,52 +125,63 @@ def get_upbit_data_and_signals(symbol, minutes):
         if pd.notnull(row['goya_line']): goya_data.append({"time": time_sec, "value": float(row['goya_line'])})
         if pd.notnull(row['smart_line']): smart_data.append({"time": time_sec, "value": float(row['smart_line'])})
 
-        # 시그널 판정 알고리즘 (거래량 1.5배 이상 터짐 & 추세선 돌파)
-        if i > 0 and vol_ma > 0 and vol >= vol_ma * 1.5:
-            prev_row = df.iloc[i-1]
+        # 과거 전체 구간 시그널 감지 조건
+        if i >= 50 and pd.notnull(row['goya_line']):
             goya = row['goya_line']
+            ma5 = row['ma5']
+            ma15 = row['ma15']
             
-            # LONG 조건: 거래량 터지며 GOYA LINE 및 Smart Line 상향 돌파
-            if close_p > goya and prev_row['trade_price'] <= prev_row['goya_line']:
-                markers.append({
-                    "time": time_sec,
-                    "position": "belowBar",
-                    "color": "#00E676",
-                    "shape": "arrowUp",
-                    "text": "L (LONG)"
-                })
-                latest_signal = "LONG"
+            # 거래량 충족 여부 (평균 대비 1.3배 이상)
+            is_volume_ok = (vol >= vol_ma * 1.3) if vol_ma > 0 else True
 
-            # SHORT 조건: 거래량 터지며 GOYA LINE 하향 이탈
-            elif close_p < goya and prev_row['trade_price'] >= prev_row['goya_line']:
-                markers.append({
-                    "time": time_sec,
-                    "position": "aboveBar",
-                    "color": "#FF5252",
-                    "shape": "arrowDown",
-                    "text": "S (SHORT)"
-                })
-                latest_signal = "SHORT"
+            # LONG 조건: 거래량이 실리면서 GOYA LINE 상단 유지 + 단기 골든크로스 상태
+            if is_volume_ok and close_p > goya and ma5 > ma15:
+                if last_signal_type != "LONG": # 추세 변경 시점에 표시
+                    markers.append({
+                        "time": time_sec,
+                        "position": "belowBar",
+                        "color": "#00E676",
+                        "shape": "arrowUp",
+                        "text": "L (LONG)"
+                    })
+                    last_signal_type = "LONG"
+                    latest_signal = "LONG"
+
+            # SHORT 조건: 거래량이 실리면서 GOYA LINE 하단 유지 + 단기 데드크로스 상태
+            elif is_volume_ok and close_p < goya and ma5 < ma15:
+                if last_signal_type != "SHORT": # 추세 변경 시점에 표시
+                    markers.append({
+                        "time": time_sec,
+                        "position": "aboveBar",
+                        "color": "#FF5252",
+                        "shape": "arrowDown",
+                        "text": "S (SHORT)"
+                    })
+                    last_signal_type = "SHORT"
+                    latest_signal = "SHORT"
 
     mas = {"ma5": ma5_data, "ma15": ma15_data, "goya": goya_data, "smart": smart_data}
     return candles, mas, markers, latest_signal
 
 upbit_candles, upbit_mas, markers, latest_signal = get_upbit_data_and_signals(symbol_upbit, target_minutes)
 
-# 시그널 대시보드 상태판 출력
-col_sig, col_info = st.columns([1, 3])
+# 대시보드상 상태판
+col_sig, col_count = st.columns([1, 2])
 with col_sig:
     if latest_signal == "LONG":
-        st.success("🟢 **스마트 시그널: LONG (매수 유입)**")
+        st.success("🟢 **현재 상태: LONG (매수 유입)**")
     elif latest_signal == "SHORT":
-        st.error("🔴 **스마트 시그널: SHORT (매도 유입)**")
+        st.error("🔴 **현재 상태: SHORT (매도 유입)**")
     else:
-        st.info("⚪ **스마트 시그널: 관망 (NEUTRAL)**")
+        st.info("⚪ **현재 상태: 관망 (NEUTRAL)**")
 
-# 차트 구성
+with col_count:
+    st.write(f"📌 **과거 포착된 스마트 시그널 총 개수:** `{len(markers)}개` (차트를 좌우로 드래그하여 확인하세요)")
+
+# Lightweight Charts 구성
 def build_chart_config(candles, ma_dict, markers):
     chart_options = {
-        "height": 480,
+        "height": 500,
         "layout": {"background": {"type": "solid", "color": "#131722"}, "textColor": "#d1d4dc"},
         "grid": {"vertLines": {"color": "#1f2937"}, "horzLines": {"color": "#1f2937"}},
         "timeScale": {"timeVisible": True, "secondsVisible": False}
@@ -188,7 +200,7 @@ def build_chart_config(candles, ma_dict, markers):
 if upbit_candles:
     renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas, markers)], key=f"chart_{symbol_upbit}_{current_tf}")
 
-# 하단 바이낸스 선물 연동
+# 바이낸스 선물 차트 연동
 st.subheader(f"🌐 바이낸스 선물 실시간 ({binance_ticker})")
 tv_interval = tv_intervals.get(target_minutes, "60")
 tradingview_html = f"""
