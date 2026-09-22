@@ -6,13 +6,12 @@ from streamlit_lightweight_charts import renderLightweightCharts
 
 # 웹 페이지 기본 설정
 st.set_page_config(
-    page_title="Crypto Long/Short Dashboard", page_icon="📈", layout="wide"
+    page_title="Crypto Smart Signal Dashboard", page_icon="🚀", layout="wide"
 )
 
 # ---------------------------------------------------------
 # 0. 실시간 자동 새로고침 (3초 간격)
 # ---------------------------------------------------------
-# HTML 스크립트를 통해 3초마다 자동으로 스트림릿을 갱신시킵니다.
 st.components.v1.html(
     """
     <script>
@@ -25,7 +24,7 @@ st.components.v1.html(
 )
 
 # ---------------------------------------------------------
-# 1. 코인 검색 및 심볼 매핑 설정
+# 1. 코인 목록 설정
 # ---------------------------------------------------------
 COIN_MAP = {
     "XRP (리플)": {"upbit": "KRW-XRP", "binance": "BINANCE:XRPUSDT.P"},
@@ -34,14 +33,11 @@ COIN_MAP = {
     "ETH (이더리움)": {"upbit": "KRW-ETH", "binance": "BINANCE:ETHUSDT.P"},
     "SOL (솔라나)": {"upbit": "KRW-SOL", "binance": "BINANCE:SOLUSDT.P"},
     "DOGE (도지코인)": {"upbit": "KRW-DOGE", "binance": "BINANCE:DOGEUSDT.P"},
-    "ADA (에이다)": {"upbit": "KRW-ADA", "binance": "BINANCE:ADAUSDT.P"},
-    "AVAX (아발란체)": {"upbit": "KRW-AVAX", "binance": "BINANCE:AVAXUSDT.P"},
 }
 
-st.sidebar.header("🔍 코인 검색 및 선택")
-
+st.sidebar.header("🔍 코인 선택")
 selected_coin_name = st.sidebar.selectbox(
-    "코인을 검색하거나 선택하세요 (예: ZEC, XRP, BTC)",
+    "코인을 검색하거나 선택하세요",
     options=list(COIN_MAP.keys()),
     index=0
 )
@@ -50,171 +46,154 @@ symbol_upbit = COIN_MAP[selected_coin_name]["upbit"]
 symbol_binance_tv = COIN_MAP[selected_coin_name]["binance"]
 binance_ticker = symbol_binance_tv.split(":")[1].replace(".P", "")
 
-# 세션 상태 초기화
 if "tf_choice" not in st.session_state:
     st.session_state["tf_choice"] = "1시간"
 
-# 시간 봉 목록 및 매핑
-all_tf_list = [
-    "1분", "3분", "5분", "10분", "15분", "30분", "45분",
-    "1시간", "2시간", "4시간", "6시간", "8시간", "10시간", "12시간"
-]
-
-timeframe_to_minutes = {
-    "1분": 1, "3분": 3, "5분": 5, "10분": 10, "15분": 15, "30분": 30, "45분": 45,
-    "1시간": 60, "2시간": 120, "4시간": 240, "6시간": 360, "8시간": 480, "10시간": 600, "12시간": 720
-}
-
-tv_intervals = {
-    1: "1", 3: "3", 5: "5", 10: "10", 15: "15", 30: "30", 45: "45",
-    60: "60", 120: "120", 240: "240", 360: "360", 480: "480", 600: "720", 720: "720"
-}
+all_tf_list = ["1분", "3분", "5분", "15분", "1시간", "4시간"]
+timeframe_to_minutes = {"1분": 1, "3분": 3, "5분": 5, "15분": 15, "1시간": 60, "4시간": 240}
+tv_intervals = {1: "1", 3: "3", 5: "5", 15: "15", 60: "60", 240: "240"}
 
 # ---------------------------------------------------------
-# 상단 타이틀
+# 상단 헤더
 # ---------------------------------------------------------
-st.title(f"🚀 {selected_coin_name}")
-st.caption(f"업비트: `{symbol_upbit}` ｜ 바이낸스 선물: `{binance_ticker}` (3초 자동 갱신 중)")
+st.title(f"📊 {selected_coin_name} 스마트 시그널 차트")
 
-# ---------------------------------------------------------
-# 시간 봉 선택 바 (차트 바로 상단)
-# ---------------------------------------------------------
+# 시간 봉 선택 버튼
 quick_tfs = ["1분", "3분", "5분", "15분", "1시간"]
 
 def on_btn_click(selected):
     st.session_state["tf_choice"] = selected
 
-def on_select_change():
-    st.session_state["tf_choice"] = st.session_state["temp_select"]
-
-c1, c2, c3, c4, c5, c_more = st.columns([1, 1, 1, 1, 1, 2.5])
-quick_cols = [c1, c2, c3, c4, c5]
-
+c1, c2, c3, c4, c5 = st.columns(5)
 for idx, q_tf in enumerate(quick_tfs):
     is_selected = (st.session_state["tf_choice"] == q_tf)
-    quick_cols[idx].button(
+    [c1, c2, c3, c4, c5][idx].button(
         q_tf,
-        key=f"btn_tf_{q_tf}",
+        key=f"btn_{q_tf}",
         use_container_width=True,
         on_click=on_btn_click,
         args=(q_tf,),
         type="primary" if is_selected else "secondary"
     )
 
-c_more.selectbox(
-    "시간 선택",
-    all_tf_list,
-    index=all_tf_list.index(st.session_state["tf_choice"]),
-    key="temp_select",
-    on_change=on_select_change,
-    label_visibility="collapsed"
-)
-
 current_tf = st.session_state["tf_choice"]
 target_minutes = timeframe_to_minutes[current_tf]
 
 # ---------------------------------------------------------
-# 2. 상단: 업비트 차트 (캐시 제거로 즉시 반영)
+# 2. 업비트 데이터 연산 & 시그널 알고리즘 분석
 # ---------------------------------------------------------
-st.subheader(f"🇰🇷 업비트 ({symbol_upbit}) - {current_tf}")
-
-def get_upbit_klines(symbol, minutes):
-    upbit_native_minutes = [1, 3, 5, 10, 15, 30, 45, 60, 240]
-    
-    if minutes in upbit_native_minutes:
-        fetch_minutes = minutes
-        fetch_count = 200
-    else:
-        fetch_minutes = 60
-        fetch_count = min(200 * (minutes // 60), 200)
-
-    url = f"https://api.upbit.com/v1/candles/minutes/{fetch_minutes}?market={symbol}&count={fetch_count}"
-    headers = {"accept": "application/json"}
-    
+def get_upbit_data_and_signals(symbol, minutes):
+    url = f"https://api.upbit.com/v1/candles/minutes/{minutes}?market={symbol}&count=200"
     try:
-        res = requests.get(url, headers=headers, timeout=5).json()
-        if not isinstance(res, list):
-            return [], {}
+        res = requests.get(url, headers={"accept": "application/json"}, timeout=5).json()
+        if not isinstance(res, list): return [], {}, []
     except Exception:
-        return [], {}
+        return [], {}, []
 
     res.reverse()
-
     df = pd.DataFrame(res)
     df['candle_date_time_utc'] = pd.to_datetime(df['candle_date_time_utc'])
     df.set_index('candle_date_time_utc', inplace=True)
 
-    if minutes not in upbit_native_minutes:
-        rule = f"{minutes}T"
-        resampled = df.resample(rule, closed='left', label='left').agg({
-            'opening_price': 'first',
-            'high_price': 'max',
-            'low_price': 'min',
-            'trade_price': 'last',
-            'timestamp': 'last'
-        }).dropna()
-        df = resampled
+    # 지표 연산
+    df['ma5'] = df['trade_price'].rolling(5).mean()
+    df['ma15'] = df['trade_price'].rolling(15).mean()
+    df['goya_line'] = df['trade_price'].rolling(60).mean() # GOYA LINE (60선)
+    df['smart_line'] = df['trade_price'].rolling(120).mean() # Smart Line (120선)
+    df['vol_ma20'] = df['candle_acc_trade_volume'].rolling(20).mean()
 
     candles = []
-    ma5, ma15, ma30, ma60, ma120 = [], [], [], [], []
-    closes = []
+    ma5_data, ma15_data, goya_data, smart_data = [], [], [], []
+    markers = []
+    latest_signal = "NEUTRAL"
 
-    for idx, row in df.iterrows():
-        time_sec = int(idx.timestamp())
-        open_p = float(row["opening_price"])
-        high_p = float(row["high_price"])
-        low_p = float(row["low_price"])
-        close_p = float(row["trade_price"])
+    for i in range(len(df)):
+        row = df.iloc[i]
+        time_sec = int(row['timestamp'] / 1000)
+        close_p = float(row['trade_price'])
+        open_p = float(row['opening_price'])
+        high_p = float(row['high_price'])
+        low_p = float(row['low_price'])
+        vol = float(row['candle_acc_trade_volume'])
+        vol_ma = float(row['vol_ma20']) if pd.notnull(row['vol_ma20']) else 0
 
-        closes.append(close_p)
         candles.append({"time": time_sec, "open": open_p, "high": high_p, "low": low_p, "close": close_p})
 
-        if len(closes) >= 5: ma5.append({"time": time_sec, "value": sum(closes[-5:]) / 5})
-        if len(closes) >= 15: ma15.append({"time": time_sec, "value": sum(closes[-15:]) / 15})
-        if len(closes) >= 30: ma30.append({"time": time_sec, "value": sum(closes[-30:]) / 30})
-        if len(closes) >= 60: ma60.append({"time": time_sec, "value": sum(closes[-60:]) / 60})
-        if len(closes) >= 120: ma120.append({"time": time_sec, "value": sum(closes[-120:]) / 120})
+        if pd.notnull(row['ma5']): ma5_data.append({"time": time_sec, "value": float(row['ma5'])})
+        if pd.notnull(row['ma15']): ma15_data.append({"time": time_sec, "value": float(row['ma15'])})
+        if pd.notnull(row['goya_line']): goya_data.append({"time": time_sec, "value": float(row['goya_line'])})
+        if pd.notnull(row['smart_line']): smart_data.append({"time": time_sec, "value": float(row['smart_line'])})
 
-    return candles, {"ma5": ma5, "ma15": ma15, "ma30": ma30, "ma60": ma60, "ma120": ma120}
+        # 시그널 판정 알고리즘 (거래량 1.5배 이상 터짐 & 추세선 돌파)
+        if i > 0 and vol_ma > 0 and vol >= vol_ma * 1.5:
+            prev_row = df.iloc[i-1]
+            goya = row['goya_line']
+            
+            # LONG 조건: 거래량 터지며 GOYA LINE 및 Smart Line 상향 돌파
+            if close_p > goya and prev_row['trade_price'] <= prev_row['goya_line']:
+                markers.append({
+                    "time": time_sec,
+                    "position": "belowBar",
+                    "color": "#00E676",
+                    "shape": "arrowUp",
+                    "text": "L (LONG)"
+                })
+                latest_signal = "LONG"
 
-def build_chart_config(candles, ma_dict):
+            # SHORT 조건: 거래량 터지며 GOYA LINE 하향 이탈
+            elif close_p < goya and prev_row['trade_price'] >= prev_row['goya_line']:
+                markers.append({
+                    "time": time_sec,
+                    "position": "aboveBar",
+                    "color": "#FF5252",
+                    "shape": "arrowDown",
+                    "text": "S (SHORT)"
+                })
+                latest_signal = "SHORT"
+
+    mas = {"ma5": ma5_data, "ma15": ma15_data, "goya": goya_data, "smart": smart_data}
+    return candles, mas, markers, latest_signal
+
+upbit_candles, upbit_mas, markers, latest_signal = get_upbit_data_and_signals(symbol_upbit, target_minutes)
+
+# 시그널 대시보드 상태판 출력
+col_sig, col_info = st.columns([1, 3])
+with col_sig:
+    if latest_signal == "LONG":
+        st.success("🟢 **스마트 시그널: LONG (매수 유입)**")
+    elif latest_signal == "SHORT":
+        st.error("🔴 **스마트 시그널: SHORT (매도 유입)**")
+    else:
+        st.info("⚪ **스마트 시그널: 관망 (NEUTRAL)**")
+
+# 차트 구성
+def build_chart_config(candles, ma_dict, markers):
     chart_options = {
-        "height": 500,
+        "height": 480,
         "layout": {"background": {"type": "solid", "color": "#131722"}, "textColor": "#d1d4dc"},
         "grid": {"vertLines": {"color": "#1f2937"}, "horzLines": {"color": "#1f2937"}},
-        "timeScale": {"timeVisible": True, "secondsVisible": False},
-        "crosshair": {"mode": 0}
+        "timeScale": {"timeVisible": True, "secondsVisible": False}
     }
 
     series = [
-        {"type": "Candlestick", "data": candles, "options": {"upColor": "#26a69a", "downColor": "#ef5350"}},
+        {"type": "Candlestick", "data": candles, "markers": markers, "options": {"upColor": "#26a69a", "downColor": "#ef5350"}},
         {"type": "Line", "data": ma_dict["ma5"], "options": {"color": "#00e676", "lineWidth": 1, "title": "5선"}},
         {"type": "Line", "data": ma_dict["ma15"], "options": {"color": "#29b6f6", "lineWidth": 1, "title": "15선"}},
-        {"type": "Line", "data": ma_dict["ma30"], "options": {"color": "#ffeb3b", "lineWidth": 1, "title": "30선"}},
-        {"type": "Line", "data": ma_dict["ma60"], "options": {"color": "#e91e63", "lineWidth": 3, "title": "Center Line"}},
-        {"type": "Line", "data": ma_dict["ma120"], "options": {"color": "#ab47bc", "lineWidth": 2, "title": "120선"}}
+        {"type": "Line", "data": ma_dict["goya"], "options": {"color": "#e91e63", "lineWidth": 3, "title": "GOYA LINE"}},
+        {"type": "Line", "data": ma_dict["smart"], "options": {"color": "#ffeb3b", "lineWidth": 2, "title": "Smart Line"}}
     ]
 
     return {"chart": chart_options, "series": series}
 
-upbit_candles, upbit_mas = get_upbit_klines(symbol_upbit, target_minutes)
-
 if upbit_candles:
-    renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas)], key=f"upbit_{symbol_upbit}_{current_tf}")
-else:
-    st.warning("업비트 차트 데이터를 불러오는 중입니다...")
+    renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas, markers)], key=f"chart_{symbol_upbit}_{current_tf}")
 
-# ---------------------------------------------------------
-# 3. 하단: 바이낸스 선물 실시간 차트
-# ---------------------------------------------------------
-st.subheader(f"🌐 바이낸스 선물 실시간 ({binance_ticker}) - {current_tf}")
-
-tv_interval = tv_intervals.get(target_minutes, "15")
-
+# 하단 바이낸스 선물 연동
+st.subheader(f"🌐 바이낸스 선물 실시간 ({binance_ticker})")
+tv_interval = tv_intervals.get(target_minutes, "60")
 tradingview_html = f"""
-<!-- TradingView Widget BEGIN -->
-<div class="tradingview-widget-container" style="height:500px;width:100%;">
-  <div id="tradingview_binance" style="height:500px;width:100%;"></div>
+<div class="tradingview-widget-container" style="height:480px;width:100%;">
+  <div id="tradingview_binance" style="height:480px;width:100%;"></div>
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <script type="text/javascript">
   new TradingView.widget({{
@@ -225,15 +204,9 @@ tradingview_html = f"""
     "theme": "dark",
     "style": "1",
     "locale": "kr",
-    "toolbar_bg": "#f1f3f6",
-    "enable_publishing": false,
-    "hide_side_toolbar": false,
-    "allow_symbol_change": false,
     "container_id": "tradingview_binance"
   }});
   </script>
 </div>
-<!-- TradingView Widget END -->
 """
-
-components.html(tradingview_html, height=505)
+components.html(tradingview_html, height=485)
