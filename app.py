@@ -5,7 +5,7 @@ import streamlit as st
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # ---------------------------------------------------------
-# 0. 모바일 최적화 및 큰 글씨 스타일 설정
+# 0. 모바일 맞춤형 대형 폰트 및 스타일 설정
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Goya Chart App", page_icon="📈", layout="centered"
@@ -27,21 +27,21 @@ st.markdown(
         border-bottom: 1px solid #2c2c2c;
     }
     .goya-title {
-        font-size: 20px;
+        font-size: 22px;
         font-weight: bold;
         color: #ffffff;
         text-align: center;
         flex-grow: 1;
     }
     .goya-back {
-        font-size: 22px;
+        font-size: 24px;
         color: #ffffff;
         cursor: pointer;
         text-decoration: none;
     }
     .goya-subbar {
         background-color: #181818;
-        padding: 12px 16px;
+        padding: 14px 16px;
         border-bottom: 1px solid #2c2c2c;
         display: flex;
         justify-content: space-between;
@@ -63,7 +63,7 @@ st.markdown(
     .goya-nav-item {
         text-align: center;
         color: #888888;
-        font-size: 13px;
+        font-size: 14px;
     }
     .goya-nav-item.active {
         color: #ff9800;
@@ -127,7 +127,7 @@ with col_c1:
 market_code = SYMBOL_MAP[st.session_state.selected_coin]
 
 # ---------------------------------------------------------
-# 3. 타임프레임 (1분, 5분, 15분, 30분, 1시간, 4시간) 버튼 배치
+# 3. 타임프레임 버튼 배치 (1분, 5분, 15분, 30분, 1시간, 4시간)
 # ---------------------------------------------------------
 tf_list = ["1분", "5분", "15분", "30분", "1시간", "4시간"]
 tf_cols = st.columns(6)
@@ -181,7 +181,7 @@ if st.session_state.show_menu:
 
 
 # ---------------------------------------------------------
-# 5. 데이터 수집 및 시그널 처리 로직
+# 5. 데이터 수집 및 시간 오차 정밀 보정 로직
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -195,6 +195,7 @@ def get_chart_data(market, tf):
         res.reverse()
         df = pd.DataFrame(res)
 
+        # KST 기준으로 타임스탬프를 정확히 일치시켜 시간 오차 해결
         dt_kst = pd.to_datetime(df["candle_date_time_kst"])
         df["time"] = dt_kst.apply(
             lambda x: int(
@@ -248,6 +249,7 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
+            # 시그널 조건 (화살표만 깔끔하게 표시)
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
@@ -266,7 +268,7 @@ def get_chart_data(market, tf):
                             "position": "belowBar",
                             "color": "#00E676",
                             "shape": "arrowUp",
-                            "text": "LONG",
+                            "text": "",
                         }
                     )
                     last_sig = "LONG"
@@ -282,7 +284,7 @@ def get_chart_data(market, tf):
                             "position": "aboveBar",
                             "color": "#FF5252",
                             "shape": "arrowDown",
-                            "text": "SHORT",
+                            "text": "",
                         }
                     )
                     last_sig = "SHORT"
@@ -312,49 +314,53 @@ else:
     pct_color = "#26a69a" if pct_val >= 0 else "#ef5350"
     pct_str = f"+{pct_val:.2f}%" if pct_val >= 0 else f"{pct_val:.2f}%"
 
-    # 노안을 고려해 큼직하게 구성한 상단 가격 및 변동률 바
+    # 상단 가격 정보 (글씨 크기 대폭 확대)
     st.markdown(
         f"""
         <div class="goya-subbar">
-            <span style="font-size: 22px; font-weight: bold; color: #ffffff;">{latest_info['close']:,.1f}</span>
-            <span style="font-size: 16px; font-weight: bold; color: {pct_color};">{pct_str}</span>
+            <span style="font-size: 26px; font-weight: bold; color: #ffffff;">{latest_info['close']:,.1f}</span>
+            <span style="font-size: 18px; font-weight: bold; color: {pct_color};">{pct_str}</span>
         </div>
     """,
         unsafe_allow_html=True,
     )
 
-    # 차트 바로 위 가독성 높은 큼직한 정보 오버레이 박스
+    # 차트 바로 위 정보 박스 (글씨 크기 큼직하게 확대)
     st.markdown(
         f"""
         <div style="
             background: #141414;
             border-bottom: 1px solid #2c2c2c;
-            padding: 10px 16px;
-            font-size: 14px;
+            padding: 12px 16px;
+            font-size: 16px;
             color: #d1d4dc;
-            line-height: 1.5;
+            line-height: 1.6;
         ">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                <span style="color: #ff9800; font-weight: bold; font-size: 15px;">{st.session_state.selected_coin} ({st.session_state.tf_choice})</span>
-                <span style="color: #8bc34a; font-weight: bold;">{latest_info['dt_str']}</span>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                <span style="color: #ff9800; font-weight: bold; font-size: 18px;">{st.session_state.selected_coin} ({st.session_state.tf_choice})</span>
+                <span style="color: #8bc34a; font-weight: bold; font-size: 16px;">{latest_info['dt_str']}</span>
             </div>
-            시가 <span style="color:#fff;">{latest_info['open']:,.1f}</span> &nbsp;|&nbsp; 
-            고가 <span style="color:#26a69a;">{latest_info['high']:,.1f}</span><br>
-            저가 <span style="color:#ef5350;">{latest_info['low']:,.1f}</span> &nbsp;|&nbsp; 
-            종가 <span style="color:#2196f3;">{latest_info['close']:,.1f}</span><br>
-            <span style="color: #e91e63; font-weight: bold;">GOYA: {latest_info['goya_line']:,.1f}</span> &nbsp;&nbsp;
-            <span style="color: #ffeb3b; font-weight: bold;">Smart: {latest_info['smart_line']:,.1f}</span>
+            시가 <span style="color:#fff; font-weight: bold;">{latest_info['open']:,.1f}</span> &nbsp;|&nbsp; 
+            고가 <span style="color:#26a69a; font-weight: bold;">{latest_info['high']:,.1f}</span><br>
+            저가 <span style="color:#ef5350; font-weight: bold;">{latest_info['low']:,.1f}</span> &nbsp;|&nbsp; 
+            종가 <span style="color:#2196f3; font-weight: bold;">{latest_info['close']:,.1f}</span><br>
+            <span style="color: #e91e63; font-weight: bold; font-size: 17px;">GOYA: {latest_info['goya_line']:,.1f}</span> &nbsp;&nbsp;
+            <span style="color: #ffeb3b; font-weight: bold; font-size: 17px;">Smart: {latest_info['smart_line']:,.1f}</span>
         </div>
     """,
         unsafe_allow_html=True,
     )
 
     # ---------------------------------------------------------
-    # 6. 트레이딩뷰 차트 렌더링 (높이 확장 및 가독성 개선)
+    # 6. 트레이딩뷰 차트 렌더링 (노안 맞춤형 폰트/축 스케일)
     # ---------------------------------------------------------
     chart_options = {
-        "height": 520,
-        "layout": {"background": {"color": "#121212"}, "textColor": "#d1d4dc"},
+        "height": 540,
+        "layout": {
+            "background": {"color": "#121212"},
+            "textColor": "#ffffff",
+            "fontSize": 14,
+        },
         "grid": {
             "vertLines": {"color": "#1f1f1f"},
             "horzLines": {"color": "#1f1f1f"},
@@ -383,7 +389,7 @@ else:
                 "data": mas["goya"],
                 "options": {
                     "color": "#e91e63",
-                    "lineWidth": 2,
+                    "lineWidth": 3,
                     "title": "GOYA LINE",
                 },
             }
@@ -395,7 +401,7 @@ else:
                 "data": mas["smart"],
                 "options": {
                     "color": "#ffeb3b",
-                    "lineWidth": 2,
+                    "lineWidth": 3,
                     "title": "Smart Line",
                 },
             }
@@ -416,7 +422,7 @@ st.markdown(
         <div class="goya-nav-item">🎛️ 마켓</div>
         <div class="goya-nav-item">💡 브리핑</div>
         <div class="goya-nav-item active">🏠 홈</div>
-        <div class="grypto-nav-item">🔔 알람</div>
+        <div class="goya-nav-item">🔔 알람</div>
         <div class="goya-nav-item">⚙️ 설정</div>
     </div>
 """,
