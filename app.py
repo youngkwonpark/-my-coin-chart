@@ -8,8 +8,6 @@ st.set_page_config(
     page_title="Crypto Chart Dashboard", page_icon="📈", layout="wide"
 )
 
-st.title("📈 실시간 코인 차트 대시보드")
-
 # 사이드바 설정
 st.sidebar.header("⚙️ 차트 설정")
 symbol = st.sidebar.selectbox(
@@ -24,6 +22,9 @@ interval_minutes = st.sidebar.selectbox(
     [5, 15, 30, 60, 120],
     index=1,
 )
+
+# 선택한 코인과 시간 봉 정보를 메인 제목으로 표시
+st.title(f"📈 {symbol} ({interval_minutes}분봉)")
 
 # 업비트 데이터 가져오기 및 이평선 계산
 @st.cache_data(ttl=10)
@@ -88,7 +89,9 @@ def get_upbit_klines(symbol, interval_minutes):
 candles, ma_dict = get_upbit_klines(symbol, interval_minutes)
 
 if candles:
+    # 모바일 화면 비율 최적화 (높이 600px 지정)
     chart_options = {
+        "height": 600,
         "layout": {"background": {"type": "solid", "color": "#131722"}, "textColor": "#d1d4dc"},
         "grid": {"vertLines": {"color": "#1f2937"}, "horzLines": {"color": "#1f2937"}},
         "timeScale": {"timeVisible": True, "secondsVisible": False},
