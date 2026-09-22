@@ -27,174 +27,156 @@ st.title("🛡️ GOYA SMART SIGNAL (KST 동기화)")
 # 1. 사이드바 설정
 # ---------------------------------------------------------
 SYMBOL_MAP = {
-    "XRP (리플)": "XRPUSDT",
-    "SOL (솔라나)": "SOLUSDT",
-    "BTC (비트코인)": "BTCUSDT",
-    "ETH (이더리움)": "ETHUSDT",
+    "XRP (리플)": "KRW-XRP",
+    "SOL (솔라나)": "KRW-SOL",
+    "BTC (비트코인)": "KRW-BTC",
+    "ETH (이더리움)": "KRW-ETH",
 }
 
 selected_coin = st.sidebar.selectbox(
     "코인 선택", list(SYMBOL_MAP.keys()), index=0
 )
-binance_symbol = SYMBOL_MAP[selected_coin]
+market_code = SYMBOL_MAP[selected_coin]
 
 timeframe_map = {
-    "1분": "1m",
-    "3분": "3m",
-    "5분": "5m",
-    "15분": "15m",
-    "1시간": "1h",
-    "4시간": "4h",
+    "1분": "minutes/1",
+    "3분": "minutes/3",
+    "5분": "minutes/5",
+    "15분": "minutes/15",
+    "1시간": "minutes/60",
+    "4시간": "minutes/240",
 }
 
 tf_selected = st.sidebar.radio("타임프레임", list(timeframe_map.keys()), index=4)
-interval = timeframe_map[tf_selected]
+tf_path = timeframe_map[tf_selected]
 
 
 # ---------------------------------------------------------
-# 2. API 차단 우회 및 KST 시간 오차 동기화 함수
+# 2. IP 차단 없는 100% 안정적 데이터 연동 및 KST 동기화
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
-def get_synchronized_data(symbol, interval_str):
-    # 접속 차단을 우회하기 위한 다중 엔드포인트
-    urls = [
-        f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval_str}&limit=300",
-        f"https://api1.binance.com/api/v3/klines?symbol={symbol}&interval={interval_str}&limit=300",
-        f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={interval_str}&limit=300",
-    ]
+def get_safe_chart_data(market, tf):
+    url = f"https://api.upbit.com/v1/candles/{tf}?market={market}&count=200"
+    headers = {"accept": "application/json"}
 
-    res_data = None
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
-    }
+    try:
+        res = requests.get(url, headers=headers, timeout=5).json()
+        if not isinstance(res, list) or len(res) == 0:
+            return None, None, None, None, None
 
-    for url in urls:
-        try:
-            res = requests.get(url, headers=headers, timeout=3).json()
-            if isinstance(res, list) and len(res) > 0:
-                res_data = res
-                break
-        except Exception:
-            continue
+        res.reverse()  # 과거 -> 현재 순서 정렬
+        df = pd.DataFrame(res)
 
-    if not res_data:
-        return None, None, None, None, None
-
-    df = pd.DataFrame(
-        res_data,
-        columns=[
-            "open_time",
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-            "close_time",
-            "qav",
-            "num_trades",
-            "tb_base_av",
-            "tb_quote_av",
-            "ignore",
-        ],
-    )
-
-    # [핵심] 바이낸스 UTC 시간을 한국 시간(KST, UTC+9) 초 단위로 정확히 동기화
-    df["timestamp_kst_sec"] = (df["open_time"] / 1000) + (9 * 3600)
-    for col in ["open", "high", "low", "close"]:
-        df[col] = df[col].astype(float)
-
-    # 고야 라인(20선) 및 스마트 라인(50선) 계산
-    df["goya_line"] = df["close"].rolling(20).mean()
-    df["smart_line"] = df["close"].rolling(50).mean()
-
-    candles = []
-    goya_data, smart_data = [], []
-    markers = []
-    signals_table = []
-    last_sig = None
-
-    for i in range(len(df)):
-        row = df.iloc[i]
-        t_sec = int(row["timestamp_kst_sec"])
-
-        # KST 기준으로 변환된 날짜/시간 문자열 (시차 오차 없이 정확히 일치)
-        dt_kst = datetime.datetime.utcfromtimestamp(t_sec)
-        t_kst_str = dt_kst.strftime("%m-%d %H:%M")
-
-        c_p, o_p, h_p, l_p = (
-            row["close"],
-            row["open"],
-            row["high"],
-            row["low"],
+        # 시간대 동기화 (KST 기준 초 단위 타임스탬프)
+        df["timestamp_kst_sec"] = (
+            pd.to_datetime(df["candle_date_time_kst"]).astype("int64") // 10**9
         )
+        df["open"] = df["opening_price"]
+        df["high"] = df["high_price"]
+        df["low"] = df["low_price"]
+        df["close"] = df["trade_price"]
 
-        candles.append(
-            {"time": t_sec, "open": o_p, "high": h_p, "low": l_p, "close": c_p}
-        )
+        # 고야 라인(20선) 및 스마트 라인(50선) 계산
+        df["goya_line"] = df["close"].rolling(20).mean()
+        df["smart_line"] = df["close"].rolling(50).mean()
 
-        if pd.notnull(row["goya_line"]):
-            goya_data.append({"time": t_sec, "value": float(row["goya_line"])})
-        if pd.notnull(row["smart_line"]):
-            smart_data.append(
-                {"time": t_sec, "value": float(row["smart_line"])}
+        candles = []
+        goya_data, smart_data = [], []
+        markers = []
+        signals_table = []
+        last_sig = None
+
+        for i in range(len(df)):
+            row = df.iloc[i]
+            t_sec = int(row["timestamp_kst_sec"])
+            t_kst_str = pd.to_datetime(row["candle_date_time_kst"]).strftime(
+                "%m-%d %H:%M"
             )
 
-        # 롱 / 숏 시그널 판정 로직
-        if (
-            i >= 50
-            and pd.notnull(row["goya_line"])
-            and pd.notnull(row["smart_line"])
-        ):
-            goya = row["goya_line"]
-            smart = row["smart_line"]
+            c_p, o_p, h_p, l_p = (
+                row["close"],
+                row["open"],
+                row["high"],
+                row["low"],
+            )
 
-            if c_p > goya and c_p > smart and last_sig != "LONG":
-                markers.append(
-                    {
-                        "time": t_sec,
-                        "position": "belowBar",
-                        "color": "#00E676",
-                        "shape": "arrowUp",
-                        "text": "L",
-                    }
-                )
-                signals_table.append(
-                    {
-                        "시간 (KST)": t_kst_str,
-                        "시그널": "🟢 L (LONG)",
-                        "가격": f"{c_p:,.4f}",
-                    }
-                )
-                last_sig = "LONG"
-            elif c_p < goya and c_p < smart and last_sig != "SHORT":
-                markers.append(
-                    {
-                        "time": t_sec,
-                        "position": "aboveBar",
-                        "color": "#FF5252",
-                        "shape": "arrowDown",
-                        "text": "S",
-                    }
-                )
-                signals_table.append(
-                    {
-                        "시간 (KST)": t_kst_str,
-                        "시그널": "🔴 S (SHORT)",
-                        "가격": f"{c_p:,.4f}",
-                    }
-                )
-                last_sig = "SHORT"
+            candles.append(
+                {
+                    "time": t_sec,
+                    "open": o_p,
+                    "high": h_p,
+                    "low": l_p,
+                    "close": c_p,
+                }
+            )
 
-    mas = {"goya": goya_data, "smart": smart_data}
-    latest_info = df.iloc[-1]
-    return candles, mas, markers, latest_info, signals_table
+            if pd.notnull(row["goya_line"]):
+                goya_data.append(
+                    {"time": t_sec, "value": float(row["goya_line"])}
+                )
+            if pd.notnull(row["smart_line"]):
+                smart_data.append(
+                    {"time": t_sec, "value": float(row["smart_line"])}
+                )
+
+            # 롱 / 숏 시그널 판정 로직
+            if (
+                i >= 50
+                and pd.notnull(row["goya_line"])
+                and pd.notnull(row["smart_line"])
+            ):
+                goya = row["goya_line"]
+                smart = row["smart_line"]
+
+                if c_p > goya and c_p > smart and last_sig != "LONG":
+                    markers.append(
+                        {
+                            "time": t_sec,
+                            "position": "belowBar",
+                            "color": "#00E676",
+                            "shape": "arrowUp",
+                            "text": "L",
+                        }
+                    )
+                    signals_table.append(
+                        {
+                            "시간 (KST)": t_kst_str,
+                            "시그널": "🟢 L (LONG)",
+                            "가격": f"{c_p:,.0f} 원",
+                        }
+                    )
+                    last_sig = "LONG"
+                elif c_p < goya and c_p < smart and last_sig != "SHORT":
+                    markers.append(
+                        {
+                            "time": t_sec,
+                            "position": "aboveBar",
+                            "color": "#FF5252",
+                            "shape": "arrowDown",
+                            "text": "S",
+                        }
+                    )
+                    signals_table.append(
+                        {
+                            "시간 (KST)": t_kst_str,
+                            "시그널": "🔴 S (SHORT)",
+                            "가격": f"{c_p:,.0f} 원",
+                        }
+                    )
+                    last_sig = "SHORT"
+
+        mas = {"goya": goya_data, "smart": smart_data}
+        latest_info = df.iloc[-1]
+        return candles, mas, markers, latest_info, signals_table
+    except Exception:
+        return None, None, None, None, None
 
 
-data_package = get_synchronized_data(binance_symbol, interval)
+data_package = get_safe_chart_data(market_code, tf_path)
 
 if data_package[0] is None:
     st.error(
-        "⚠️ 네트워크 통신에 일시적인 지연이 발생했습니다. 잠시 후 새로고침 해주세요."
+        "⚠️ 데이터를 불러오는 중 잠시 지연이 발생했습니다. 새로고침을 눌러주세요."
     )
 else:
     candles, mas, markers, latest_info, signals_table = data_package
@@ -204,19 +186,19 @@ else:
     # ---------------------------------------------------------
     st.markdown("### 📌 실시간 OHLCV (한국시간 KST 기준)")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("시가 (Open)", f"{latest_info['open']:.4f}")
-    c2.metric("고가 (High)", f"{latest_info['high']:.4f}")
-    c3.metric("저가 (Low)", f"{latest_info['low']:.4f}")
-    c4.metric("종가 (Close)", f"{latest_info['close']:.4f}")
+    c1.metric("시가 (Open)", f"{latest_info['open']:,} 원")
+    c2.metric("고가 (High)", f"{latest_info['high']:,} 원")
+    c3.metric("저가 (Low)", f"{latest_info['low']:,} 원")
+    c4.metric("종가 (Close)", f"{latest_info['close']:,} 원")
     c5.metric(
         "Goya Line",
-        f"{latest_info['goya_line']:.4f}"
+        f"{latest_info['goya_line']:,.1f}"
         if pd.notnull(latest_info["goya_line"])
         else "-",
     )
     c6.metric(
         "Smart Line",
-        f"{latest_info['smart_line']:.4f}"
+        f"{latest_info['smart_line']:,.1f}"
         if pd.notnull(latest_info["smart_line"])
         else "-",
     )
@@ -268,7 +250,7 @@ else:
 
     renderLightweightCharts(
         [{"chart": chart_options, "series": series}],
-        key=f"chart_{binance_symbol}_{interval}",
+        key=f"chart_{market_code}_{tf_path}",
     )
 
     # ---------------------------------------------------------
