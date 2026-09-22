@@ -5,7 +5,7 @@ import streamlit as st
 from streamlit_lightweight_charts import renderLightweightCharts
 
 # ---------------------------------------------------------
-# 0. 스타일 설정 (노안 맞춤형 초대형 폰트 및 가독성 최적화)
+# 0. 바이낸스 스타일 및 노안 맞춤형 가독성 최적화 스타일 설정
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Goya Chart App", page_icon="📈", layout="centered"
@@ -55,9 +55,9 @@ st.markdown(
         border: 1px solid #444444 !important;
     }
     .stButton > button {
-        font-size: 16px !important;
+        font-size: 15px !important;
         font-weight: bold !important;
-        padding: 10px 0px !important;
+        padding: 8px 0px !important;
         background-color: #262626 !important;
         color: #ffffff !important;
         border: 1px solid #444444 !important;
@@ -89,7 +89,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 1. 세션 상태 초기화 (안전 기본값 설정)
+# 1. 세션 상태 초기화
 # ---------------------------------------------------------
 if "selected_coin" not in st.session_state:
     st.session_state.selected_coin = "XRP/USDT"
@@ -99,12 +99,9 @@ if "show_goya" not in st.session_state:
     st.session_state.show_goya = True
 if "show_smart" not in st.session_state:
     st.session_state.show_smart = True
-if "show_tf_box" not in st.session_state:
-    st.session_state.show_tf_box = False
-if (
-    "tf_choice" not in st.session_state
-    or st.session_state.tf_choice not in ["1분", "3분", "5분", "15분", "30분", "45분", "1시간", "2시간", "4시간", "6시간", "8시간", "12시간"]
-):
+if "show_more_tf" not in st.session_state:
+    st.session_state.show_more_tf = False
+if "tf_choice" not in st.session_state:
     st.session_state.tf_choice = "1시간"
 
 SYMBOL_MAP = {
@@ -116,20 +113,16 @@ SYMBOL_MAP = {
     "ADA/USDT": "KRW-ADA",
 }
 
-# 타임프레임 정의 (오류 방지를 위해 표준 명칭 사용)
-TF_CONFIG = {
-    "1분": {"path": "minutes/1"},
-    "3분": {"path": "minutes/3"},
-    "5분": {"path": "minutes/5"},
-    "15분": {"path": "minutes/15"},
-    "30분": {"path": "minutes/30"},
-    "45분": {"path": "minutes/45"},
-    "1시간": {"path": "minutes/60"},
-    "2시간": {"path": "minutes/120"},
-    "4시간": {"path": "minutes/240"},
-    "6시간": {"path": "minutes/360"},
-    "8시간": {"path": "minutes/480"},
-    "12시간": {"path": "minutes/720"},
+# 업비트 공식 지원 타임프레임 전체 매핑
+UPBIT_TF_CONFIG = {
+    "1분": "minutes/1",
+    "3분": "minutes/3",
+    "5분": "minutes/5",
+    "15분": "minutes/15",
+    "30분": "minutes/30",
+    "1시간": "minutes/60",
+    "4시간": "minutes/240",
+    "일봉": "days/1",
 }
 
 # ---------------------------------------------------------
@@ -189,33 +182,47 @@ market_code = SYMBOL_MAP[st.session_state.selected_coin]
 
 
 # ---------------------------------------------------------
-# 3. 우측 화살표로 여닫는 타임프레임 선택 바
+# 3. [바이낸스 스타일] 메인 노출 봉 버튼 + 우측 More ▼ 토글 바
 # ---------------------------------------------------------
 st.markdown(
-    '<div style="background-color: #141414; padding: 12px 16px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center;">',
-    unsafe_allow_html=True,
-)
-st.markdown(
-    f"<span style='color: #ff9800; font-weight: bold; font-size: 18px;'>선택된 봉: {st.session_state.tf_choice}</span>",
+    '<div style="background-color: #141414; padding: 10px 12px; border-bottom: 1px solid #333;">',
     unsafe_allow_html=True,
 )
 
-toggle_btn_label = (
-    "타임프레임 닫기 ▲" if st.session_state.show_tf_box else "타임프레임 선택 ▼"
-)
-if st.button(toggle_btn_label, key="tf_toggle_btn"):
-    st.session_state.show_tf_box = not st.session_state.show_tf_box
-    st.rerun()
-st.markdown("</div>", unsafe_allow_html=True)
+# 앞에 상시 노출할 주요 타임프레임들
+main_tfs = ["1분", "5분", "15분", "30분", "1시간"]
+tf_cols = st.columns(len(main_tfs) + 1)
 
-if st.session_state.show_tf_box:
+for idx, tf_name in enumerate(main_tfs):
+    with tf_cols[idx]:
+        is_selected = st.session_state.tf_choice == tf_name
+        if st.button(
+            tf_name,
+            use_container_width=True,
+            type="primary" if is_selected else "secondary",
+            key=f"main_tf_{tf_name}",
+        ):
+            st.session_state.tf_choice = tf_name
+            st.rerun()
+
+# 맨 우측에 바이낸스 스타일 'More ▼ / ▲' 버튼 배치
+with tf_cols[-1]:
+    more_label = "More ▲" if st.session_state.show_more_tf else "More ▼"
+    if st.button(
+        more_label, use_container_width=True, key="tf_more_toggle"
+    ):
+        st.session_state.show_more_tf = not st.session_state.show_more_tf
+        st.rerun()
+
+# More 버튼을 눌렀을 때 아래로 쭈르륵 펼쳐지는 전체 타임프레임 리스트
+if st.session_state.show_more_tf:
     st.markdown(
-        '<div style="background-color: #1a1a1a; padding: 12px; border-bottom: 1px solid #333;">',
+        "<div style='margin-top: 10px; padding-top: 10px; border-top: 1px dashed #444;'>",
         unsafe_allow_html=True,
     )
-    tf_keys = list(TF_CONFIG.keys())
-    for i in range(0, len(tf_keys), 4):
-        row_keys = tf_keys[i : i + 4]
+    all_tf_keys = list(UPBIT_TF_CONFIG.keys())
+    for i in range(0, len(all_tf_keys), 4):
+        row_keys = all_tf_keys[i : i + 4]
         cols = st.columns(len(row_keys))
         for idx, tf_name in enumerate(row_keys):
             with cols[idx]:
@@ -224,18 +231,20 @@ if st.session_state.show_tf_box:
                     tf_name,
                     use_container_width=True,
                     type="primary" if is_selected else "secondary",
-                    key=f"tf_popup_{tf_name}",
+                    key=f"more_tf_{tf_name}",
                 ):
                     st.session_state.tf_choice = tf_name
-                    st.session_state.show_tf_box = False
+                    st.session_state.show_more_tf = False
                     st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
-tf_path = TF_CONFIG[st.session_state.tf_choice]["path"]
+st.markdown("</div>", unsafe_allow_html=True)
+
+tf_path = UPBIT_TF_CONFIG.get(st.session_state.tf_choice, "minutes/60")
 
 
 # ---------------------------------------------------------
-# 4. [요청 반영] 지표 설정 문구 없이 3가지 지표 박스 항시 노출
+# 4. 문구 없이 3가지 지표 체크박스 항시 노출
 # ---------------------------------------------------------
 st.markdown(
     '<div style="background-color: #181818; padding: 12px 16px; border-bottom: 2px solid #333;">',
@@ -272,7 +281,11 @@ def get_chart_data(market, tf):
         res.reverse()
         df = pd.DataFrame(res)
 
-        dt_kst = pd.to_datetime(df["candle_date_time_kst"])
+        dt_kst = pd.to_datetime(
+            df["candle_date_time_kst"]
+            if "candle_date_time_kst" in df.columns
+            else df["candle_date_time_utc"]
+        )
         df["time"] = dt_kst.apply(
             lambda x: int(
                 x.replace(
