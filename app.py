@@ -27,10 +27,10 @@ binance_symbols = {
 symbol_binance_tv = binance_symbols[symbol_upbit]
 
 # 세션 상태 초기화
-if "selected_tf" not in st.session_state:
-    st.session_state.selected_tf = "15분"
+if "timeframe" not in st.session_state:
+    st.session_state["timeframe"] = "15분"
 
-# 시간 봉 설정 및 매핑
+# 시간 봉 목록 및 매핑
 all_tf_list = [
     "1분", "3분", "5분", "10분", "15분", "30분", "45분",
     "1시간", "2시간", "4시간", "6시간", "8시간", "10시간", "12시간"
@@ -46,48 +46,58 @@ tv_intervals = {
     60: "60", 120: "120", 240: "240", 360: "360", 480: "480", 600: "720", 720: "720"
 }
 
+# ---------------------------------------------------------
+# 상단 타이틀
+# ---------------------------------------------------------
 st.title(f"📈 {symbol_upbit} vs {symbol_binance_tv.split(':')[1]}")
 
 # ---------------------------------------------------------
-# 바이낸스 스타일 시간 봉 선택바 (자주 쓰는 4개 + 화살표 드롭다운)
+# 1. 상단: 업비트 차트 섹션
 # ---------------------------------------------------------
-st.write("⏱️ **시간 봉 선택**")
+st.subheader(f"🇰🇷 업비트 ({symbol_upbit})")
 
-# 바이낸스처럼 자주 쓰는 퀵 버튼 4개
-quick_tfs = ["1분", "5분", "15분", "1시간"]
+# [시간 봉 선택 바] 차트 바로 상단 배치
+quick_tfs = ["1분", "3분", "5분", "15분", "1시간"]
 
-# 레이아웃: 퀵버튼 4개(각 1.2비율) + 전체 드롭다운 1개(3비율)
-c1, c2, c3, c4, c_more = st.columns([1.2, 1.2, 1.2, 1.2, 3])
+# 버튼 클릭 시 세션 상태 동기화 함수
+def set_tf(tf_value):
+    st.session_state["timeframe"] = tf_value
 
-quick_cols = [c1, c2, c3, c4]
+c1, c2, c3, c4, c5, c_more = st.columns([1, 1, 1, 1, 1, 2.5])
+quick_cols = [c1, c2, c3, c4, c5]
+
 for idx, q_tf in enumerate(quick_tfs):
-    label = f"[{q_tf}]" if st.session_state.selected_tf == q_tf else q_tf
-    if quick_cols[idx].button(label, key=f"quick_{q_tf}", use_container_width=True):
-        st.session_state.selected_tf = q_tf
-        st.rerun()
+    # 현재 선택된 봉 버튼 강조 표시
+    is_selected = (st.session_state["timeframe"] == q_tf)
+    btn_label = f"✓ {q_tf}" if is_selected else q_tf
+    
+    quick_cols[idx].button(
+        btn_label,
+        key=f"btn_{q_tf}",
+        use_container_width=True,
+        on_click=set_tf,
+        args=(q_tf,),
+        type="primary" if is_selected else "secondary"
+    )
 
-# 화살표(▼) 클릭 시 전체 시간 목록이 나오는 드롭다운
-selected_from_dropdown = c_more.selectbox(
-    "전체 시간 선택",
+# 전체 시간 선택 드롭다운 (화살표)
+selected_dropdown = c_more.selectbox(
+    "시간 선택",
     all_tf_list,
-    index=all_tf_list.index(st.session_state.selected_tf),
-    key="tf_selectbox",
+    index=all_tf_list.index(st.session_state["timeframe"]),
+    key="selectbox_tf",
     label_visibility="collapsed"
 )
 
-# 드롭다운 변경 시 세션 업데이트
-if selected_from_dropdown != st.session_state.selected_tf:
-    st.session_state.selected_tf = selected_from_dropdown
+# 드롭다운으로 변경되었을 때도 상태 반영
+if selected_dropdown != st.session_state["timeframe"]:
+    st.session_state["timeframe"] = selected_dropdown
     st.rerun()
 
-current_tf = st.session_state.selected_tf
+current_tf = st.session_state["timeframe"]
 target_minutes = timeframe_to_minutes[current_tf]
 
-st.markdown(f"**현재 적용:** `<{current_tf}>` 봉 차트", unsafe_allow_html=True)
-
-# ---------------------------------------------------------
-# 1. 상단: 업비트 차트
-# ---------------------------------------------------------
+# 업비트 데이터 수집 함수
 @st.cache_data(ttl=10)
 def get_upbit_klines(symbol, minutes):
     upbit_native_minutes = [1, 3, 5, 10, 15, 30, 45, 60, 240]
@@ -170,9 +180,8 @@ def build_chart_config(candles, ma_dict):
 
 upbit_candles, upbit_mas = get_upbit_klines(symbol_upbit, target_minutes)
 
-st.subheader(f"🇰🇷 업비트 ({symbol_upbit}) - {current_tf}")
 if upbit_candles:
-    renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas)], key=f"upbit_chart_{current_tf}")
+    renderLightweightCharts([build_chart_config(upbit_candles, upbit_mas)], key=f"upbit_{current_tf}")
 
 # ---------------------------------------------------------
 # 2. 하단: 바이낸스 실시간 차트
