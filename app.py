@@ -52,7 +52,7 @@ tf_path = timeframe_map[tf_selected]
 
 
 # ---------------------------------------------------------
-# 2. IP 차단 없는 100% 안정적 데이터 연동 및 KST 동기화
+# 2. 타임스탬프 시간 꼬임 완벽 해결 및 데이터 가공
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_safe_chart_data(market, tf):
@@ -67,10 +67,10 @@ def get_safe_chart_data(market, tf):
         res.reverse()  # 과거 -> 현재 순서 정렬
         df = pd.DataFrame(res)
 
-        # 시간대 동기화 (KST 기준 초 단위 타임스탬프)
-        df["timestamp_kst_sec"] = (
-            pd.to_datetime(df["candle_date_time_kst"]).astype("int64") // 10**9
-        )
+        # [핵심] 업비트 KST 시간을 파이썬 datetime으로 변환 후 정확한 초 단위 타임스탬프(int) 추출
+        dt_series = pd.to_datetime(df["candle_date_time_kst"])
+        df["timestamp_kst_sec"] = dt_series.astype("int64") // 10**9
+
         df["open"] = df["opening_price"]
         df["high"] = df["high_price"]
         df["low"] = df["low_price"]
@@ -89,9 +89,7 @@ def get_safe_chart_data(market, tf):
         for i in range(len(df)):
             row = df.iloc[i]
             t_sec = int(row["timestamp_kst_sec"])
-            t_kst_str = pd.to_datetime(row["candle_date_time_kst"]).strftime(
-                "%m-%d %H:%M"
-            )
+            t_kst_str = dt_series.iloc[i].strftime("%m-%d %H:%M")
 
             c_p, o_p, h_p, l_p = (
                 row["close"],
