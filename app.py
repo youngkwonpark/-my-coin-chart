@@ -89,7 +89,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# 1. 세션 상태 초기화
+# 1. 세션 상태 초기화 (안전 기본값 설정)
 # ---------------------------------------------------------
 if "selected_coin" not in st.session_state:
     st.session_state.selected_coin = "XRP/USDT"
@@ -99,11 +99,12 @@ if "show_goya" not in st.session_state:
     st.session_state.show_goya = True
 if "show_smart" not in st.session_state:
     st.session_state.show_smart = True
-if "show_menu" not in st.session_state:
-    st.session_state.show_menu = False
 if "show_tf_box" not in st.session_state:
     st.session_state.show_tf_box = False
-if "tf_choice" not in st.session_state:
+if (
+    "tf_choice" not in st.session_state
+    or st.session_state.tf_choice not in ["1분", "3분", "5분", "15분", "30분", "45분", "1시간", "2시간", "4시간", "6시간", "8시간", "12시간"]
+):
     st.session_state.tf_choice = "1시간"
 
 SYMBOL_MAP = {
@@ -115,7 +116,7 @@ SYMBOL_MAP = {
     "ADA/USDT": "KRW-ADA",
 }
 
-# 1분부터 12시간까지 업비트 API 경로 완벽 지원 매핑
+# 타임프레임 정의 (오류 방지를 위해 표준 명칭 사용)
 TF_CONFIG = {
     "1분": {"path": "minutes/1"},
     "3분": {"path": "minutes/3"},
@@ -123,7 +124,7 @@ TF_CONFIG = {
     "15분": {"path": "minutes/15"},
     "30분": {"path": "minutes/30"},
     "45분": {"path": "minutes/45"},
-    "60분(1시간)": {"path": "minutes/60"},
+    "1시간": {"path": "minutes/60"},
     "2시간": {"path": "minutes/120"},
     "4시간": {"path": "minutes/240"},
     "6시간": {"path": "minutes/360"},
@@ -132,7 +133,7 @@ TF_CONFIG = {
 }
 
 # ---------------------------------------------------------
-# 2. 상단 헤더 및 좌우 배치 (왼쪽: 코인 드롭다운, 오른쪽: 넓은 검색창)
+# 2. 상단 헤더 및 좌우 코인 선택 & 검색 바
 # ---------------------------------------------------------
 st.markdown(
     f"""
@@ -188,14 +189,14 @@ market_code = SYMBOL_MAP[st.session_state.selected_coin]
 
 
 # ---------------------------------------------------------
-# 3. 우측 화살표 토글로 열고 닫히는 전체 타임프레임 선택 바
+# 3. 우측 화살표로 여닫는 타임프레임 선택 바
 # ---------------------------------------------------------
 st.markdown(
-    '<div style="background-color: #141414; padding: 10px 14px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center;">',
+    '<div style="background-color: #141414; padding: 12px 16px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center;">',
     unsafe_allow_html=True,
 )
 st.markdown(
-    f"<span style='color: #ff9800; font-weight: bold; font-size: 17px;'>선택된 봉: {st.session_state.tf_choice}</span>",
+    f"<span style='color: #ff9800; font-weight: bold; font-size: 18px;'>선택된 봉: {st.session_state.tf_choice}</span>",
     unsafe_allow_html=True,
 )
 
@@ -207,14 +208,12 @@ if st.button(toggle_btn_label, key="tf_toggle_btn"):
     st.rerun()
 st.markdown("</div>", unsafe_allow_html=True)
 
-# 화살표를 눌러 열렸을 때 1분 ~ 12시간 전체 버튼 표시
 if st.session_state.show_tf_box:
     st.markdown(
         '<div style="background-color: #1a1a1a; padding: 12px; border-bottom: 1px solid #333;">',
         unsafe_allow_html=True,
     )
     tf_keys = list(TF_CONFIG.keys())
-    # 4개씩 줄바꿈 배치
     for i in range(0, len(tf_keys), 4):
         row_keys = tf_keys[i : i + 4]
         cols = st.columns(len(row_keys))
@@ -236,42 +235,30 @@ tf_path = TF_CONFIG[st.session_state.tf_choice]["path"]
 
 
 # ---------------------------------------------------------
-# 4. 스마트 차트 지표 설정 메뉴
+# 4. [요청 반영] 지표 설정 문구 없이 3가지 지표 박스 항시 노출
 # ---------------------------------------------------------
-col_menu_btn, _ = st.columns([2, 3])
-with col_menu_btn:
-    menu_label = (
-        "⚙️ 지표 설정 닫기 ▲"
-        if st.session_state.show_menu
-        else "⚙️ 지표 설정 ▾"
+st.markdown(
+    '<div style="background-color: #181818; padding: 12px 16px; border-bottom: 2px solid #333;">',
+    unsafe_allow_html=True,
+)
+mc1, mc2, mc3 = st.columns(3)
+with mc1:
+    st.session_state.show_candle = st.checkbox(
+        "캔들", value=st.session_state.show_candle
     )
-    if st.button(menu_label, use_container_width=True):
-        st.session_state.show_menu = not st.session_state.show_menu
-        st.rerun()
-
-if st.session_state.show_menu:
-    st.markdown(
-        '<div style="background-color: #1a1a1a; padding: 12px; border-bottom: 1px solid #333;">',
-        unsafe_allow_html=True,
+with mc2:
+    st.session_state.show_goya = st.checkbox(
+        "GOYA", value=st.session_state.show_goya
     )
-    mc1, mc2, mc3 = st.columns(3)
-    with mc1:
-        st.session_state.show_candle = st.checkbox(
-            "캔들", value=st.session_state.show_candle
-        )
-    with mc2:
-        st.session_state.show_goya = st.checkbox(
-            "GOYA", value=st.session_state.show_goya
-        )
-    with mc3:
-        st.session_state.show_smart = st.checkbox(
-            "Smart", value=st.session_state.show_smart
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
+with mc3:
+    st.session_state.show_smart = st.checkbox(
+        "Smart", value=st.session_state.show_smart
+    )
+st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------
-# 5. 데이터 수집 및 KST 시간 왜곡 완전 보정 로직
+# 5. 데이터 수집 및 KST 시간 보정 로직
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -285,7 +272,6 @@ def get_chart_data(market, tf):
         res.reverse()
         df = pd.DataFrame(res)
 
-        # 업비트 KST 문자열을 완벽하게 파싱하여 시간 오차(밀림 현상) 원천 차단
         dt_kst = pd.to_datetime(df["candle_date_time_kst"])
         df["time"] = dt_kst.apply(
             lambda x: int(
@@ -339,7 +325,6 @@ def get_chart_data(market, tf):
                     {"time": t_sec, "value": float(row["smart_line"])}
                 )
 
-            # 롱/숏 신호 마커 생성
             if (
                 i >= 50
                 and pd.notnull(row["goya_line"])
