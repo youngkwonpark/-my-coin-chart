@@ -10,13 +10,27 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
+# 0. 실시간 자동 새로고침 (3초 간격)
+# ---------------------------------------------------------
+# HTML 스크립트를 통해 3초마다 자동으로 스트림릿을 갱신시킵니다.
+st.components.v1.html(
+    """
+    <script>
+        setTimeout(function(){
+            window.parent.postMessage({type: 'streamlit:render'}, '*');
+        }, 3000);
+    </script>
+    """,
+    height=0,
+)
+
+# ---------------------------------------------------------
 # 1. 코인 검색 및 심볼 매핑 설정
 # ---------------------------------------------------------
-# 업비트 KRW 마켓 코인 목록 및 바이낸스 선물 매핑 테이블
 COIN_MAP = {
-    "BTC (비트코인)": {"upbit": "KRW-BTC", "binance": "BINANCE:BTCUSDT.P"},
-    "ZEC (제트캐시)": {"upbit": "KRW-ZEC", "binance": "BINANCE:ZECUSDT.P"},
     "XRP (리플)": {"upbit": "KRW-XRP", "binance": "BINANCE:XRPUSDT.P"},
+    "ZEC (제트캐시)": {"upbit": "KRW-ZEC", "binance": "BINANCE:ZECUSDT.P"},
+    "BTC (비트코인)": {"upbit": "KRW-BTC", "binance": "BINANCE:BTCUSDT.P"},
     "ETH (이더리움)": {"upbit": "KRW-ETH", "binance": "BINANCE:ETHUSDT.P"},
     "SOL (솔라나)": {"upbit": "KRW-SOL", "binance": "BINANCE:SOLUSDT.P"},
     "DOGE (도지코인)": {"upbit": "KRW-DOGE", "binance": "BINANCE:DOGEUSDT.P"},
@@ -26,7 +40,6 @@ COIN_MAP = {
 
 st.sidebar.header("🔍 코인 검색 및 선택")
 
-# 돋보기 검색이 가능한 선택 상자 (Selectbox with search)
 selected_coin_name = st.sidebar.selectbox(
     "코인을 검색하거나 선택하세요 (예: ZEC, XRP, BTC)",
     options=list(COIN_MAP.keys()),
@@ -39,7 +52,7 @@ binance_ticker = symbol_binance_tv.split(":")[1].replace(".P", "")
 
 # 세션 상태 초기화
 if "tf_choice" not in st.session_state:
-    st.session_state["tf_choice"] = "15분"
+    st.session_state["tf_choice"] = "1시간"
 
 # 시간 봉 목록 및 매핑
 all_tf_list = [
@@ -58,10 +71,10 @@ tv_intervals = {
 }
 
 # ---------------------------------------------------------
-# 상단 타이틀 & 롱/숏 대시보드 해더
+# 상단 타이틀
 # ---------------------------------------------------------
 st.title(f"🚀 {selected_coin_name}")
-st.caption(f"업비트: `{symbol_upbit}` ｜ 바이낸스 선물: `{binance_ticker}`")
+st.caption(f"업비트: `{symbol_upbit}` ｜ 바이낸스 선물: `{binance_ticker}` (3초 자동 갱신 중)")
 
 # ---------------------------------------------------------
 # 시간 봉 선택 바 (차트 바로 상단)
@@ -101,11 +114,10 @@ current_tf = st.session_state["tf_choice"]
 target_minutes = timeframe_to_minutes[current_tf]
 
 # ---------------------------------------------------------
-# 2. 상단: 업비트 차트
+# 2. 상단: 업비트 차트 (캐시 제거로 즉시 반영)
 # ---------------------------------------------------------
 st.subheader(f"🇰🇷 업비트 ({symbol_upbit}) - {current_tf}")
 
-@st.cache_data(ttl=10)
 def get_upbit_klines(symbol, minutes):
     upbit_native_minutes = [1, 3, 5, 10, 15, 30, 45, 60, 240]
     
@@ -193,7 +205,7 @@ else:
     st.warning("업비트 차트 데이터를 불러오는 중입니다...")
 
 # ---------------------------------------------------------
-# 3. 하단: 바이낸스 선물 실시간 차트 (연동)
+# 3. 하단: 바이낸스 선물 실시간 차트
 # ---------------------------------------------------------
 st.subheader(f"🌐 바이낸스 선물 실시간 ({binance_ticker}) - {current_tf}")
 
