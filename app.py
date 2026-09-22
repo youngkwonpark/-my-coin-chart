@@ -52,7 +52,7 @@ tf_path = timeframe_map[tf_selected]
 
 
 # ---------------------------------------------------------
-# 2. 1970년 오류 원천 차단 및 시간 완벽 정렬 가공
+# 2. 1970년 오류 원천 차단 데이터 가공 (정렬 및 중복 제거)
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_safe_chart_data(market, tf):
@@ -66,23 +66,24 @@ def get_safe_chart_data(market, tf):
 
         df = pd.DataFrame(res)
 
-        # 날짜 형식 파싱 및 유효하지 않은 데이터 제거
+        # 날짜 파싱 및 결측치 제거
         df["dt"] = pd.to_datetime(df["candle_date_time_kst"], errors="coerce")
         df = df.dropna(subset=["dt", "trade_price"])
 
-        # 타임스탬프 계산 및 오름차순 정렬 (과거 -> 현재)
-        df["timestamp_kst_sec"] = df["dt"].astype("int64") // 10**9
-        df = df.sort_values("timestamp_kst_sec").drop_duplicates(
-            subset=["timestamp_kst_sec"]
+        # 타임스탬프 변환 및 오름차순 정렬 (과거 -> 현재 순서 필수)
+        df["timestamp_kst_sec"] = (df["dt"].astype("int64") // 10**9).astype(int)
+        df = (
+            df.sort_values("timestamp_kst_sec")
+            .drop_duplicates(subset=["timestamp_kst_sec"])
+            .reset_index(drop=True)
         )
-        df = df.reset_index(drop=True)
 
         df["open"] = df["opening_price"]
         df["high"] = df["high_price"]
         df["low"] = df["low_price"]
         df["close"] = df["trade_price"]
 
-        # 고야 라인(20선) 및 스마트 라인(50선) 계산
+        # 이동평균선 계산
         df["goya_line"] = df["close"].rolling(20).mean()
         df["smart_line"] = df["close"].rolling(50).mean()
 
@@ -95,15 +96,15 @@ def get_safe_chart_data(market, tf):
         for i in range(len(df)):
             row = df.iloc[i]
             t_sec = int(row["timestamp_kst_sec"])
-            if t_sec <= 0:
-                continue  # 비정상 타임스탬프 무조건 스킵
+            if t_sec <= 1000000000:  # 비정상 타임스탬프 필터링
+                continue
 
             t_kst_str = row["dt"].strftime("%m-%d %H:%M")
             c_p, o_p, h_p, l_p = (
-                row["close"],
-                row["open"],
-                row["high"],
-                row["low"],
+                float(row["close"]),
+                float(row["open"]),
+                float(row["high"]),
+                float(row["low"]),
             )
 
             candles.append(
@@ -174,7 +175,7 @@ def get_safe_chart_data(market, tf):
         mas = {"goya": goya_data, "smart": smart_data}
         latest_info = df.iloc[-1]
         return candles, mas, markers, latest_info, signals_table
-    except Exception:
+    except Exception as e:
         return None, None, None, None, None
 
 
@@ -182,7 +183,7 @@ data_package = get_safe_chart_data(market_code, tf_path)
 
 if data_package[0] is None:
     st.error(
-        "⚠️ 데이터를 불러오는 중 잠시 지연이 발생했습니다. 새로고침을 눌러주세요."
+        "⚠️ 데이터를 불러오는 중 오류가 발생했습니다. 새로고침을 눌러주세요."
     )
 else:
     candles, mas, markers, latest_info, signals_table = data_package
@@ -210,7 +211,7 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 4. 트레이딩뷰 스타일 캔들 차트 (화살표 마커 포함)
+    # 4. 트레이딩뷰 스타일 캔들 차트 출력
     # ---------------------------------------------------------
     st.subheader(f"📈 {selected_coin} 스마트 캔들 차트")
 
