@@ -14,28 +14,33 @@ st.title("📈 실시간 코인 차트 대시보드")
 st.sidebar.header("⚙️ 차트 설정")
 symbol = st.sidebar.selectbox(
     "코인 선택",
-    ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ZECUSDT"],
+    ["KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-XRP"],
     index=0,
 )
 
-interval = st.sidebar.selectbox(
+interval_minutes = st.sidebar.selectbox(
     "시간 봉 설정",
-    ["1m", "5m", "15m", "1h", "4h", "1d"],
-    index=3,
+    [1, 3, 5, 15, 30, 60, 240],
+    index=3,  # 기본값 15분봉
 )
 
-# 데이터 가져오기 함수
+# 업비트 데이터 가져오기 함수
 @st.cache_data(ttl=10)
-def get_binance_klines(symbol, interval):
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit=200"
+def get_upbit_klines(symbol, interval_minutes):
+    url = f"https://api.upbit.com/v1/candles/minutes/{interval_minutes}?market={symbol}&count=200"
+    headers = {"accept": "application/json"}
+    
     try:
-        res = requests.get(url, timeout=5).json()
+        res = requests.get(url, headers=headers, timeout=5).json()
         if not isinstance(res, list):
             st.error(f"API 응답 에러: {res}")
             return [], [], [], []
     except Exception as e:
         st.error(f"네트워크 에러: {e}")
         return [], [], [], []
+
+    # 업비트 데이터는 최신순으로 넘어오므로 과거 순으로 정렬
+    res.reverse()
 
     candles = []
     goya_line = []
@@ -44,11 +49,11 @@ def get_binance_klines(symbol, interval):
     closes = []
 
     for item in res:
-        time_sec = int(item[0] / 1000)
-        open_p = float(item[1])
-        high_p = float(item[2])
-        low_p = float(item[3])
-        close_p = float(item[4])
+        time_sec = int(item["timestamp"] / 1000)
+        open_p = float(item["opening_price"])
+        high_p = float(item["high_price"])
+        low_p = float(item["low_price"])
+        close_p = float(item["trade_price"])
 
         closes.append(close_p)
 
@@ -95,7 +100,7 @@ def get_binance_klines(symbol, interval):
 
     return candles, goya_line, smart_line, markers
 
-candles, goya_data, smart_data, markers = get_binance_klines(symbol, interval)
+candles, goya_data, smart_data, markers = get_upbit_klines(symbol, interval_minutes)
 
 if candles:
     chart_options = {
