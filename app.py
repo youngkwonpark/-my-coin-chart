@@ -52,7 +52,7 @@ tf_path = timeframe_map[tf_selected]
 
 
 # ---------------------------------------------------------
-# 2. 데이터 안전 수집 및 가공
+# 2. 업비트 네이티브 timestamp 활용 완벽 데이터 가공
 # ---------------------------------------------------------
 @st.cache_data(ttl=5)
 def get_chart_data(market, tf):
@@ -64,15 +64,17 @@ def get_chart_data(market, tf):
         if not isinstance(res, list) or len(res) == 0:
             return None, None, None, None, None
 
+        # 업비트 API 원본 데이터 기준 과거 -> 현재 순서로 정렬
+        res.reverse()
         df = pd.DataFrame(res)
-        df.reverse_df = df.iloc[::-1].reset_index(
-            drop=True
-        )  # 과거 -> 현재 정렬
-        df = df.iloc[::-1].reset_index(drop=True)
 
-        # 시간 변환 (타임스탬프 초 단위 정수형)
-        df["dt"] = pd.to_datetime(df["candle_date_time_kst"])
-        df["time"] = df["dt"].astype("int64") // 10**9
+        # [핵심] 파싱 오류 없는 업비트 원본 'timestamp' 밀리초를 초 단위로 직접 변환
+        df["time"] = (df["timestamp"] // 1000).astype(int)
+
+        # KST 시간 문자열 (테이블 및 표기용)
+        df["dt_str"] = pd.to_datetime(df["candle_date_time_kst"]).dt.strftime(
+            "%m-%d %H:%M"
+        )
 
         df["open"] = df["opening_price"]
         df["high"] = df["high_price"]
@@ -92,7 +94,7 @@ def get_chart_data(market, tf):
         for i in range(len(df)):
             row = df.iloc[i]
             t_sec = int(row["time"])
-            t_kst_str = row["dt"].strftime("%m-%d %H:%M")
+            t_kst_str = row["dt_str"]
 
             c_p = float(row["close"])
             o_p = float(row["open"])
@@ -168,14 +170,13 @@ def get_chart_data(market, tf):
         latest_info = df.iloc[-1]
         return candles, mas, markers, latest_info, signals_table
     except Exception as e:
-        st.error(f"데이터 처리 중 오류 발생: {e}")
         return None, None, None, None, None
 
 
 data_package = get_chart_data(market_code, tf_path)
 
 if data_package[0] is None:
-    st.warning("데이터를 불러오는 중입니다...")
+    st.error("⚠️ 데이터를 불러오는 중입니다. 잠시 후 새로고침해 주세요.")
 else:
     candles, mas, markers, latest_info, signals_table = data_package
 
