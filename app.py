@@ -17,17 +17,27 @@ col1, col2 = st.columns([2, 1])
 with col1:
     symbol = st.text_input("코인 심볼 입력 (예: XRPUSDT, BTCUSDT)", value="XRPUSDT").upper().strip()
 with col2:
-    interval = st.selectbox("시간봉 선택", ["1m", "5m", "15m", "1h", "4h", "1d"], index=3)
+    # 요구하신 모든 세밀한 시간봉 완벽 지원 (1분~1일)
+    interval_options = ["1m", "3m", "5m", "10m", "15m", "20m", "30m", "1h", "2h", "4h", "6h", "8h", "1d"]
+    interval = st.selectbox("시간봉 선택", interval_options, index=3)
 
-@st.cache_data(ttl=30)
-def fetch_advanced_data(symbol, interval):
+@st.cache_data(ttl=20)
+def fetch_advanced_data(symbol, selected_interval):
     url_klines = "https://data-api.binance.vision/api/v3/klines"
     url_ticker = "https://data-api.binance.vision/api/v3/ticker/24hr"
     
+    # 10분, 20분봉은 1분봉 데이터를 기반으로 정밀 리샘플링 처리
+    if selected_interval in ["10m", "20m"]:
+        fetch_interval = "1m"
+        limit = 1000
+    else:
+        fetch_interval = selected_interval
+        limit = 150
+        
     params = {
         "symbol": symbol,
-        "interval": interval,
-        "limit": 120  # 모바일 가독성을 위한 최적 캔들 수
+        "interval": fetch_interval,
+        "limit": limit
     }
     
     try:
@@ -47,6 +57,28 @@ def fetch_advanced_data(symbol, interval):
         numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume']
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+            
+        # 10분봉 / 20분봉 리샘플링 로직
+        if selected_interval == "10m":
+            df = df.set_index('timestamp').resample('10min').agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum',
+                'taker_buy_base_asset_volume': 'sum',
+                'taker_buy_quote_asset_volume': 'sum'
+            }).dropna().reset_index().tail(150)
+        elif selected_interval == "20m":
+            df = df.set_index('timestamp').resample('20min').agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum',
+                'taker_buy_base_asset_volume': 'sum',
+                'taker_buy_quote_asset_volume': 'sum'
+            }).dropna().reset_index().tail(150)
             
         res_ticker = requests.get(url_ticker, params={"symbol": symbol}, timeout=5)
         ticker_data = res_ticker.json() if res_ticker.status_code == 200 else {}
@@ -97,7 +129,7 @@ if df is not None and not df.empty:
 
     st.markdown("---")
 
-    # --- [섹션 2] 트레이딩뷰 스타일 모바일 최적화 인터랙티브 차트 ---
+    # --- [섹션 2] 트레이딩뷰 스타일 인터랙티브 캔들 차트 ---
     fig = go.Figure()
 
     fig.add_trace(go.Candlestick(
@@ -111,19 +143,17 @@ if df is not None and not df.empty:
         decreasing_line_color='#ef5350'
     ))
 
-    # 모바일 터치 시 캔들 찢어짐 및 비율 깨짐 방지를 위한 레이아웃 고정 설정
     fig.update_layout(
         title=dict(text=f"{symbol} Pro Interactive Chart ({interval})", font=dict(size=15)),
         yaxis_title="USDT Price",
         xaxis_rangeslider_visible=False,
-        height=500,
-        margin=dict(l=5, r=5, t=30, b=5),
+        height=550,
+        margin=dict(l=10, r=10, t=40, b=10),
         hovermode="x unified",
         template="plotly_dark",
-        dragmode="zoom"  # 드래그 시 왜곡 없이 부드러운 줌인/아웃 지원
+        dragmode="zoom"
     )
     
-    # 축 고정 설정을 통해 강제로 캔들 모양 유지
     fig.update_xaxes(
         showgrid=True,
         gridwidth=1,
@@ -139,7 +169,7 @@ if df is not None and not df.empty:
         autorange=True
     )
 
-    # 설정 적용하여 스트림릿에 출력 (반응형 너비 고정)
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': False})
+    # 줌/스크롤 제어 최적화 설정 적용
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
 else:
     st.error("코인 데이터를 불러오지 못했습니다. 심볼명을 다시 확인해 주세요.")
