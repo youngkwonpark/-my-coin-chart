@@ -27,7 +27,7 @@ def fetch_advanced_data(symbol, interval):
     params = {
         "symbol": symbol,
         "interval": interval,
-        "limit": 150
+        "limit": 120  # 모바일 가독성을 위한 최적 캔들 수
     }
     
     try:
@@ -44,7 +44,6 @@ def fetch_advanced_data(symbol, interval):
         
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         
-        # 모든 수치형 데이터 명확히 변환 및 결측치 처리
         numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume']
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
@@ -98,7 +97,7 @@ if df is not None and not df.empty:
 
     st.markdown("---")
 
-    # --- [섹션 2] 트레이딩뷰 스타일 개선형 인터랙티브 차트 ---
+    # --- [섹션 2] 트레이딩뷰 스타일 모바일 최적화 인터랙티브 차트 ---
     fig = go.Figure()
 
     fig.add_trace(go.Candlestick(
@@ -112,28 +111,35 @@ if df is not None and not df.empty:
         decreasing_line_color='#ef5350'
     ))
 
+    # 모바일 터치 시 캔들 찢어짐 및 비율 깨짐 방지를 위한 레이아웃 고정 설정
     fig.update_layout(
-        title=dict(text=f"{symbol} Pro Interactive Chart ({interval})", font=dict(size=16)),
+        title=dict(text=f"{symbol} Pro Interactive Chart ({interval})", font=dict(size=15)),
         yaxis_title="USDT Price",
         xaxis_rangeslider_visible=False,
-        height=550,
-        margin=dict(l=10, r=10, t=40, b=10),
+        height=500,
+        margin=dict(l=5, r=5, t=30, b=5),
         hovermode="x unified",
-        template="plotly_dark"
+        template="plotly_dark",
+        dragmode="zoom"  # 드래그 시 왜곡 없이 부드러운 줌인/아웃 지원
     )
     
+    # 축 고정 설정을 통해 강제로 캔들 모양 유지
     fig.update_xaxes(
         showgrid=True,
         gridwidth=1,
-        gridcolor='rgba(255,255,255,0.1)'
+        gridcolor='rgba(255,255,255,0.1)',
+        fixedrange=False
     )
     fig.update_yaxes(
         showgrid=True,
         gridwidth=1,
         gridcolor='rgba(255,255,255,0.1)',
-        side="right"
+        side="right",
+        fixedrange=False,
+        autorange=True
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    # 설정 적용하여 스트림릿에 출력 (반응형 너비 고정)
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': False})
 else:
     st.error("코인 데이터를 불러오지 못했습니다. 심볼명을 다시 확인해 주세요.")
