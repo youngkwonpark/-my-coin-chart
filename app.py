@@ -21,7 +21,8 @@ with col2:
 
 @st.cache_data(ttl=60)
 def fetch_binance_data(symbol, interval):
-    url = "https://api.binance.com/api/v3/klines"
+    # 클라우드 차단이 없는 바이낸스 공식 데이터 전용 엔드포인트 사용
+    url = "https://data-api.binance.vision/api/v3/klines"
     params = {
         "symbol": symbol,
         "interval": interval,
