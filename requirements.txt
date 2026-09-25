@@ -1,3 +1,4 @@
 streamlit
 streamlit-lightweight-charts
 requests
+plotly
