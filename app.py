@@ -21,18 +21,16 @@ with col2:
 
 @st.cache_data(ttl=30)
 def fetch_advanced_data(symbol, interval):
-    # 바이낸스 공식 데이터 엔드포인트
     url_klines = "https://data-api.binance.vision/api/v3/klines"
     url_ticker = "https://data-api.binance.vision/api/v3/ticker/24hr"
     
     params = {
         "symbol": symbol,
         "interval": interval,
-        "limit": 150  # 더 넉넉한 캔들 데이터 로드
+        "limit": 150
     }
     
     try:
-        # 1. 캔들 데이터 가져오기
         res_klines = requests.get(url_klines, params=params, timeout=5)
         if res_klines.status_code != 200:
             return None, None
@@ -45,10 +43,12 @@ def fetch_advanced_data(symbol, interval):
         ])
         
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        for col in ['open', 'high', 'low', 'close', 'volume', 'taker_buy_quote_asset_volume', 'quote_asset_volume']:
-            df[col] = df[col].astype(float)
+        
+        # 모든 수치형 데이터 명확히 변환 및 결측치 처리
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume']
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
             
-        # 2. 24시간 통계 및 매수/매도 볼륨 분석 (고래/오더플로우 매크로 시뮬레이션)
         res_ticker = requests.get(url_ticker, params={"symbol": symbol}, timeout=5)
         ticker_data = res_ticker.json() if res_ticker.status_code == 200 else {}
         
@@ -65,14 +65,13 @@ if df is not None and not df.empty:
     # --- [섹션 1] 매크로 시그널 & 청산/고래 동향 분석 패널 ---
     st.markdown("### 📊 실시간 온체인 및 오더플로우 매크로 시그널")
     
-    # 최근 봉들의 테이커 매수/매도 볼륨 비교를 통한 강도 계산
     recent_df = df.tail(20)
-    total_vol = recent_df['volume'].sum()
-    buy_vol = recent_df['taker_buy_base_asset_volume'].sum()
-    sell_vol = total_vol - buy_vol
+    total_vol = float(recent_df['volume'].sum())
+    buy_vol = float(recent_df['taker_buy_base_asset_volume'].sum())
+    sell_vol = max(0.0, total_vol - buy_vol)
     
-    buy_ratio = (buy_vol / total_vol * 100) if total_vol > 0 else 50
-    sell_ratio = 100 - buy_ratio
+    buy_ratio = (buy_vol / total_vol * 100) if total_vol > 0 else 50.0
+    sell_ratio = 100.0 - buy_ratio
     
     col_sig1, col_sig2, col_sig3 = st.columns(3)
     
@@ -85,18 +84,16 @@ if df is not None and not df.empty:
             st.metric(label="매수/매도 세력 균형", value="중립 횡보 (Neutral)", delta="0.0%")
             
     with col_sig2:
-        # 변동성 및 고래 거래량 감지 시뮬레이션
-        avg_vol = df['volume'].mean()
-        latest_vol = df.iloc[-1]['volume']
+        avg_vol = float(df['volume'].mean())
+        latest_vol = float(df.iloc[-1]['volume'])
         if latest_vol > avg_vol * 2.5:
             st.metric(label="고래/대형 거래소 움직임", value="대량 거래 포착 (Whale Active)", delta="주의")
         else:
             st.metric(label="고래/대형 거래소 움직임", value="정상 유동성 흐름", delta="안정")
             
     with col_sig3:
-        # 가상 청산 맵 매크로 레벨 계산 (최근 고저가 기준)
-        high_max = df['high'].max()
-        low_min = df['low'].min()
+        high_max = float(df['high'].max())
+        low_min = float(df['low'].min())
         st.metric(label="핵심 청산 맵 예상 구간", value=f"상단: {high_max:,.2f}", delta=f"하단: {low_min:,.2f}")
 
     st.markdown("---")
@@ -104,7 +101,6 @@ if df is not None and not df.empty:
     # --- [섹션 2] 트레이딩뷰 스타일 개선형 인터랙티브 차트 ---
     fig = go.Figure()
 
-    # 캔들스틱 추가 (호버 시 상세 데이터 및 줌/팬 최적화)
     fig.add_trace(go.Candlestick(
         x=df['timestamp'],
         open=df['open'],
@@ -112,22 +108,20 @@ if df is not None and not df.empty:
         low=df['low'],
         close=df['close'],
         name=symbol,
-        increasing_line_color='#26a69a', # 상승 캔들 색상 (초록)
-        decreasing_line_color='#ef5350'  # 하락 캔들 색상 (빨강)
+        increasing_line_color='#26a69a',
+        decreasing_line_color='#ef5350'
     ))
 
-    # 레이아웃 모바일 최적화 및 인터랙션 강화 (마우스 호버 시 툴팁 고정, 줌/팬 활성화)
     fig.update_layout(
         title=dict(text=f"{symbol} Pro Interactive Chart ({interval})", font=dict(size=16)),
         yaxis_title="USDT Price",
         xaxis_rangeslider_visible=False,
         height=550,
         margin=dict(l=10, r=10, t=40, b=10),
-        hovermode="x unified",  # 마우스 올렸을 때 해당 시간의 모든 데이터 한눈에 보기
-        template="plotly_dark"   # 다비 모드 스타일 적용으로 시인성 극대화
+        hovermode="x unified",
+        template="plotly_dark"
     )
     
-    # x축/y축 스케일러블 설정
     fig.update_xaxes(
         showgrid=True,
         gridwidth=1,
