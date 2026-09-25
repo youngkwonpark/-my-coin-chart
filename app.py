@@ -17,7 +17,7 @@ col1, col2 = st.columns([2, 1])
 with col1:
     symbol = st.text_input("코인 심볼 입력 (예: XRPUSDT, BTCUSDT)", value="XRPUSDT").upper().strip()
 with col2:
-    # 요구하신 모든 세밀한 시간봉 완벽 지원 (1분~1일)
+    # 모든 세밀한 시간봉 지원
     interval_options = ["1m", "3m", "5m", "10m", "15m", "20m", "30m", "1h", "2h", "4h", "6h", "8h", "1d"]
     interval = st.selectbox("시간봉 선택", interval_options, index=3)
 
@@ -129,7 +129,7 @@ if df is not None and not df.empty:
 
     st.markdown("---")
 
-    # --- [섹션 2] 트레이딩뷰 스타일 인터랙티브 캔들 차트 ---
+    # --- [섹션 2] 트레이딩뷰 스타일 모바일 터치 최적화 차트 ---
     fig = go.Figure()
 
     fig.add_trace(go.Candlestick(
@@ -151,7 +151,8 @@ if df is not None and not df.empty:
         margin=dict(l=10, r=10, t=40, b=10),
         hovermode="x unified",
         template="plotly_dark",
-        dragmode="zoom"
+        dragmode="pan",           # 핵심: 드래그 시 박스선택 대신 화면 이동(Pan)으로 설정하여 찌그러짐 방지
+        uirevision="constant"     # 줌/패닝 시 화면 상태 유지
     )
     
     fig.update_xaxes(
@@ -169,7 +170,7 @@ if df is not None and not df.empty:
         autorange=True
     )
 
-    # 줌/스크롤 제어 최적화 설정 적용
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
+    # 모바일 스크롤 줌 및 제어바 최적화 설정
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': False, 'doubleClick': 'reset'})
 else:
     st.error("코인 데이터를 불러오지 못했습니다. 심볼명을 다시 확인해 주세요.")
