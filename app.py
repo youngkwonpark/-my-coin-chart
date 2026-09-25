@@ -17,7 +17,6 @@ col1, col2 = st.columns([2, 1])
 with col1:
     symbol = st.text_input("코인 심볼 입력 (예: XRPUSDT, BTCUSDT)", value="XRPUSDT").upper().strip()
 with col2:
-    # 모든 세밀한 시간봉 지원
     interval_options = ["1m", "3m", "5m", "10m", "15m", "20m", "30m", "1h", "2h", "4h", "6h", "8h", "1d"]
     interval = st.selectbox("시간봉 선택", interval_options, index=3)
 
@@ -26,7 +25,6 @@ def fetch_advanced_data(symbol, selected_interval):
     url_klines = "https://data-api.binance.vision/api/v3/klines"
     url_ticker = "https://data-api.binance.vision/api/v3/ticker/24hr"
     
-    # 10분, 20분봉은 1분봉 데이터를 기반으로 정밀 리샘플링 처리
     if selected_interval in ["10m", "20m"]:
         fetch_interval = "1m"
         limit = 1000
@@ -58,26 +56,15 @@ def fetch_advanced_data(symbol, selected_interval):
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
             
-        # 10분봉 / 20분봉 리샘플링 로직
         if selected_interval == "10m":
             df = df.set_index('timestamp').resample('10min').agg({
-                'open': 'first',
-                'high': 'max',
-                'low': 'min',
-                'close': 'last',
-                'volume': 'sum',
-                'taker_buy_base_asset_volume': 'sum',
-                'taker_buy_quote_asset_volume': 'sum'
+                'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last',
+                'volume': 'sum', 'taker_buy_base_asset_volume': 'sum', 'taker_buy_quote_asset_volume': 'sum'
             }).dropna().reset_index().tail(150)
         elif selected_interval == "20m":
             df = df.set_index('timestamp').resample('20min').agg({
-                'open': 'first',
-                'high': 'max',
-                'low': 'min',
-                'close': 'last',
-                'volume': 'sum',
-                'taker_buy_base_asset_volume': 'sum',
-                'taker_buy_quote_asset_volume': 'sum'
+                'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last',
+                'volume': 'sum', 'taker_buy_base_asset_volume': 'sum', 'taker_buy_quote_asset_volume': 'sum'
             }).dropna().reset_index().tail(150)
             
         res_ticker = requests.get(url_ticker, params={"symbol": symbol}, timeout=5)
@@ -93,7 +80,7 @@ df, ticker = fetch_advanced_data(symbol, interval)
 if df is not None and not df.empty:
     st.success(f"성공적으로 {symbol} ({interval}) 매크로 데이터를 동기화했습니다!")
     
-    # --- [섹션 1] 매크로 시그널 & 청산/고래 동향 분석 패널 ---
+    # --- [섹션 1] 매크로 시그널 패널 ---
     st.markdown("### 📊 실시간 온체인 및 오더플로우 매크로 시그널")
     
     recent_df = df.tail(20)
@@ -105,7 +92,6 @@ if df is not None and not df.empty:
     sell_ratio = 100.0 - buy_ratio
     
     col_sig1, col_sig2, col_sig3 = st.columns(3)
-    
     with col_sig1:
         if buy_ratio > 55:
             st.metric(label="매수/매도 세력 균형", value="매수 우세 (Bullish)", delta=f"+{buy_ratio-50:.1f}%")
@@ -113,7 +99,6 @@ if df is not None and not df.empty:
             st.metric(label="매수/매도 세력 균형", value="매도 우세 (Bearish)", delta=f"-{sell_ratio-50:.1f}%", delta_color="inverse")
         else:
             st.metric(label="매수/매도 세력 균형", value="중립 횡보 (Neutral)", delta="0.0%")
-            
     with col_sig2:
         avg_vol = float(df['volume'].mean())
         latest_vol = float(df.iloc[-1]['volume'])
@@ -121,7 +106,6 @@ if df is not None and not df.empty:
             st.metric(label="고래/대형 거래소 움직임", value="대량 거래 포착 (Whale Active)", delta="주의")
         else:
             st.metric(label="고래/대형 거래소 움직임", value="정상 유동성 흐름", delta="안정")
-            
     with col_sig3:
         high_max = float(df['high'].max())
         low_min = float(df['low'].min())
@@ -129,7 +113,7 @@ if df is not None and not df.empty:
 
     st.markdown("---")
 
-    # --- [섹션 2] 트레이딩뷰 스타일 모바일 터치 최적화 차트 ---
+    # --- [섹션 2] 트레이딩뷰 스타일 인터랙티브 캔들 차트 ---
     fig = go.Figure()
 
     fig.add_trace(go.Candlestick(
@@ -143,34 +127,29 @@ if df is not None and not df.empty:
         decreasing_line_color='#ef5350'
     ))
 
+    # 모바일 터치 및 줌 크기 조절을 위한 레이아웃 구성
     fig.update_layout(
         title=dict(text=f"{symbol} Pro Interactive Chart ({interval})", font=dict(size=15)),
         yaxis_title="USDT Price",
         xaxis_rangeslider_visible=False,
-        height=550,
-        margin=dict(l=10, r=10, t=40, b=10),
+        height=520,
+        margin=dict(l=5, r=5, t=35, b=5),
         hovermode="x unified",
         template="plotly_dark",
-        dragmode="pan",           # 핵심: 드래그 시 박스선택 대신 화면 이동(Pan)으로 설정하여 찌그러짐 방지
-        uirevision="constant"     # 줌/패닝 시 화면 상태 유지
+        dragmode="pan",  # 손가락 드래그 시 캔버스 이동 활성화
     )
     
-    fig.update_xaxes(
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='rgba(255,255,255,0.1)',
-        fixedrange=False
-    )
-    fig.update_yaxes(
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='rgba(255,255,255,0.1)',
-        side="right",
-        fixedrange=False,
-        autorange=True
-    )
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(255,255,255,0.1)')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(255,255,255,0.1)', side="right", autorange=True)
 
-    # 모바일 스크롤 줌 및 제어바 최적화 설정
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': False, 'doubleClick': 'reset'})
+    # 모바일 상단 툴바 활성화 (확대/축소 버튼 및 홈버튼 포함)
+    config = {
+        'scrollZoom': True,           # 마우스 휠 및 모바일 핀치 줌 허용
+        'displayModeBar': True,       # 상단 툴바 표시 (확대, 축소, 이동 버튼)
+        'modeBarButtonsToRemove': ['lasso2d', 'select2d'], # 불필요한 선택 도구 제거
+        'displaylogo': False
+    }
+
+    st.plotly_chart(fig, use_container_width=True, config=config)
 else:
     st.error("코인 데이터를 불러오지 못했습니다. 심볼명을 다시 확인해 주세요.")
